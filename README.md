@@ -421,16 +421,6 @@ errori audio. Premi **Salva opzioni** per applicarla alle misure successive.
 I file non vengono copiati: mantienili in una cartella accessibile agli utenti
 che usano l'applicazione. I formati riproducibili dipendono dai codec installati.
 
-## Preparazione della prima release pubblica
-
-Il candidato è in verifica: non è ancora definita una matrice di sistemi
-certificati. La CI proposta usa Ubuntu 24.04 x86_64 e CPython 3.14.4;
-questo non equivale a una prova di installazione desktop o multiutente.
-La build locale richiede x86_64 e controlla le versioni installate contro
-`constraints-release.txt`. Preparare il venv con
-`pip install -r constraints-release.txt`, quindi installare il progetto.
-Le build producono anche checksum `.sha256` verificabili con `sha256sum -c`.
-
 Consultare [CHANGELOG.md](CHANGELOG.md), [BACKUP.md](BACKUP.md),
 [CONTRIBUTING.md](CONTRIBUTING.md) e [SECURITY.md](SECURITY.md).
 Icone e piani di campionamento sono creazioni originali dell'autore.
