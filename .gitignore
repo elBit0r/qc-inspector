@@ -1,0 +1,50 @@
+# Build and distribution
+/build/
+/dist/
+/.public-release/
+*.egg-info/
+
+# Local/internal project files
+/deploy_deb.sh
+/AGENTS.md
+/.codex/
+/.agents/
+/docs/
+
+# Python virtual environments and caches
+/.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime databases and data
+/qc_database.sqlite
+*.sqlite
+*.sqlite3
+*.db
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~
+
+# IDE / editor files
+.idea/
+.vscode/
+
+# OS metadata
+.DS_Store
+Thumbs.db

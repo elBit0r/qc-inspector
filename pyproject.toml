@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qc-inspector"
+dynamic = ["version"]
+description = "Programmazione e registrazione di controlli qualità da disegni PDF"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-only"
+license-files = [
+    "LICENSE",
+    "NOTICE.md",
+    "THIRD_PARTY_NOTICES.md",
+    "third_party/licenses/*",
+]
+dependencies = [
+    "PyQt5>=5.15.0",
+    "PyMuPDF>=1.20.0",
+    "reportlab>=4.0.0",
+]
+
+[project.scripts]
+qc-inspector = "qc_inspector.main:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "qc_inspector.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["qc_inspector*"]
+
+[tool.setuptools.package-data]
+qc_inspector = [
+    "assets/audio/*.oga",
+    "assets/icons/*.svg",
+    "assets/icons/*.png",
+    "main-icon.png",
+    "ISTRUZIONI_USO.md",
+]
