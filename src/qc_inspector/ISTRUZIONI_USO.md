@@ -49,7 +49,7 @@ Usare questa modalità per creare o modificare un setup di controllo.
 2. Inserire il nome del setup e, se utile, la sua descrizione.
 3. Selezionare la **Classe di Collaudo** dalla Configurazione.
 4. Caricare il PDF del disegno tecnico.
-5. Cliccare sul PDF per aggiungere una pallinatura.
+5. Fare clic sul PDF per aggiungere una pallinatura.
 6. Per ogni pallinatura compilare il controllo:
    - **Dimensionale**: quota nominale, tolleranza positiva e tolleranza negativa.
    - **Sì / No**: controllo di presenza o verifica senza valore numerico.
@@ -83,13 +83,13 @@ classificati `C` una sola volta.
 
 ### Modifica dei controlli
 
-- Clic su una pallinatura o su una riga della lista: carica il controllo nel form.
-- Click destro sulla pallinatura: elimina il controllo.
+- Clic su una pallinatura o su una riga della lista: carica il controllo nella maschera.
+- Clic destro sulla pallinatura: elimina il controllo.
 - Pulsante **Elimina selezionato**: elimina il controllo selezionato dalla lista.
 - Pulsanti **Sposta su** e **Sposta giù**: cambiano l'ordine del controllo e
-  rinumerano automaticamente i balloon. Il nuovo ordine diventa definitivo
+  rinumerano automaticamente le pallinature. Il nuovo ordine diventa definitivo
   soltanto premendo **Salva setup**.
-- Trascinamento con il pulsante sinistro su un balloon: sposta la pallinatura
+- Trascinamento con il pulsante sinistro su una pallinatura: sposta la pallinatura
   sul disegno senza modificarne numero e ordine. Anche la nuova posizione viene
   registrata soltanto con **Salva setup**.
 
@@ -117,7 +117,7 @@ sostituzione.
 
 - Rotella mouse: zoom.
 - Tasto centrale + trascina: spostamento.
-- Doppio click sul PDF fuori dalle pallinature: reset zoom/spostamento.
+- Doppio clic sul PDF fuori dalle pallinature: reset zoom/spostamento.
 - Pulsanti freccia: cambio pagina PDF.
 
 ## Modalità Controllo
@@ -125,7 +125,7 @@ sostituzione.
 Usare questa modalità per eseguire il collaudo di un lotto.
 
 1. Aprire **CONTROLLO**.
-2. Nel form iniziale compilare:
+2. Nella maschera iniziale compilare:
    - setup da caricare; digitare una parte del nome per filtrare rapidamente l'elenco;
    - fornitore, scegliendolo dalla Configurazione; digitare una parte della ragione sociale per filtrare l'elenco;
    - numero lotto;
@@ -146,14 +146,16 @@ lotto, esito e stato.
 Il programma suggerisce il piano **Esteso**, **Normale** o **Ridotto** in base
 allo storico; l'operatore può sempre selezionarne manualmente uno diverso. Ogni
 voce del menu utilizza un colore distinto per rendere evidente il piano attivo.
-Il programma cerca la quantità del lotto nel piano appartenente alla **Classe
-di Collaudo del setup** e legge `n/Ac/Re` per le criticità presenti. Il calcolo
-applicato è mostrato in tre riquadri separati: **Critica**, **Importante** e
-**Normale**. Ogni `n` viene applicato separatamente e limitato alla quantità
-disponibile; il valore più alto determina soltanto il numero massimo di pezzi
-mostrati nel campo **Q.tà da controllare**. Per un lotto unitario i valori sono
-sempre `n=1`, `Ac=0`, `Re=1`. Viene mostrato anche l'intervallo di lotto
-applicato. Se manca un intervallo valido, l'avvio viene bloccato.
+
+Il programma individua l'intervallo della quantità lotto nel piano della
+**Classe di Collaudo del setup**. Legge quindi `n`, `Ac` e `Re` per ogni
+criticità presente. I valori sono mostrati nei riquadri **Critica**,
+**Importante** e **Normale**, insieme all'intervallo applicato.
+
+Ogni criticità mantiene il proprio valore `n`, limitato alla quantità del
+lotto. Il valore più alto compare nel campo **Q.tà da controllare**.
+Per un lotto unitario si applicano sempre `n=1`, `Ac=0`, `Re=1`.
+Se manca un intervallo valido, l'avvio viene bloccato.
 
 Il controllo sequenziale è disponibile quando la quantità da controllare è
 maggiore di due ed è selezionato di default. Se
@@ -170,9 +172,9 @@ per adattare lo spazio alle dimensioni del monitor.
 
 ### Come funziona il piano di campionamento
 
-Il piano determina **quanti pezzi controllare per ciascuna criticità** e quante
+Il piano determina **quanti componenti controllare per ciascuna criticità** e quante
 unità difettose accettare. Un controllo C, I o N viene quindi richiesto soltanto
-nei primi `n` pezzi previsti per la propria criticità.
+nei primi `n` componenti previsti per la propria criticità.
 
 Il calcolo usa quattro informazioni:
 
@@ -180,7 +182,7 @@ Il calcolo usa quattro informazioni:
    il gruppo di tabelle da utilizzare.
 2. **Tipo di piano**: Esteso, Normale o Ridotto. Il programma lo suggerisce
    usando lo storico della coppia setup-fornitore e le regole della Classe di
-   Collaudo; l'utente può comunque cambiarlo nel form **Avvia controllo**.
+   Collaudo; l'utente può comunque cambiarlo nella finestra **Avvia controllo**.
 3. **Quantità totale del lotto**: serve a individuare la riga il cui intervallo
    `Lotto min – Lotto max` contiene la quantità indicata. Il simbolo `∞`
    significa che l'intervallo non ha un limite massimo.
@@ -189,23 +191,23 @@ Il calcolo usa quattro informazioni:
    quella criticità.
 
 Dalla riga individuata il programma legge `n`, `Ac` e `Re` per ogni criticità
-presente. Il valore `n` resta separato per C, I e N; il massimo serve solo a
-determinare quanti pezzi/pannelli mostrare:
+presente. Il valore `n` resta separato per C, I e N. Il massimo determina
+quanti campioni mostrare:
 
 ```text
 n applicato alla criticità = minimo tra n della criticità e quantità del lotto
 quantità massima mostrata = massimo tra n(C), n(I), n(N) applicati
 ```
 
-Il secondo passaggio impedisce di richiedere più pezzi di quelli realmente
-presenti. Un lotto composto da un solo pezzo viene sempre controllato per
+Il limite alla quantità del lotto impedisce di richiedere più componenti di
+quelli presenti. Un lotto composto da un solo componente viene controllato per
 intero. Se nessun intervallo comprende la quantità del lotto, il programma
 segnala l'errore e non permette di avviare il controllo.
 
 #### Esempio 1 — criticità diverse
 
-Si seleziona il piano **Normale**, il lotto contiene **100 pezzi** e il setup ha
-controlli C, I e N. La quantità 100 appartiene al range `91–150`. Con i valori
+Si seleziona il piano **Normale**, il lotto contiene **100 componenti** e il setup ha
+controlli C, I e N. La quantità 100 appartiene all'intervallo `91–150`. Con i valori
 predefiniti della relativa riga:
 
 ```text
@@ -214,13 +216,13 @@ I: n = 13
 N: n = 8
 ```
 
-Il valore massimo è 20, ma i controlli C sono richiesti su **20 pezzi**, quelli
-I su **13 pezzi** e quelli N su **8 pezzi**.
+Il valore massimo è 20, ma i controlli C sono richiesti su **20 componenti**, quelli
+I su **13 componenti** e quelli N su **8 componenti**.
 
 #### Esempio 2 — il numero dei controlli non cambia il campione
 
 Con lo stesso lotto e lo stesso piano, un setup con un controllo C e dieci
-controlli N mostra ancora **20 pezzi**. Il controllo C compare 20 volte, mentre
+controlli N mostra ancora **20 componenti**. Il controllo C compare 20 volte, mentre
 ciascuno dei dieci controlli N compare 8 volte. Ogni setup salvabile deve
 contenere almeno un controllo C, che viene quindi sempre incluso nel calcolo
 insieme alle eventuali criticità I e N.
@@ -252,34 +254,38 @@ ricalcolato il campionamento.
 
 #### Esempio 3 — campione maggiore del lotto
 
-Si seleziona il piano **Esteso**, il lotto contiene **2 pezzi** e il valore
+Si seleziona il piano **Esteso**, il lotto contiene **2 componenti** e il valore
 richiesto per C è `n = 8`. Il calcolo finale applica `min(8, 2)`: vengono
-controllati **entrambi i pezzi**, senza creare campioni inesistenti.
+controllati **entrambi i componenti**, senza creare campioni inesistenti.
 
 #### Quante registrazioni vengono richieste
 
-La voce **Q.tà da controllare** indica il massimo numero di pezzi/campioni, non
+La voce **Q.tà da controllare** indica il massimo numero di campioni, non
 il numero totale di campi da compilare. Il totale delle registrazioni è:
 
 ```text
 somma di n(criticità del controllo), per tutti i controlli del setup
 ```
 
-Esempio: con un controllo C da 20 pezzi, un controllo I da 10 e un controllo N
+Esempio: con un controllo C da 20 componenti, un controllo I da 10 e un controllo N
 da 5 vengono richieste `20 + 10 + 5 = 35` registrazioni. In modalità Standard,
-dal pezzo 6 non compare più il controllo N e dal pezzo 11 non compare più il
+dal componente 6 non compare più il controllo N e dal componente 11 non compare più il
 controllo I. In modalità **Inserimento controllo per controllo**, i tre tab
 contengono rispettivamente 20, 10 e 5 righe.
 
-`Ac` indica il numero massimo di **pezzi difettosi accettabili** per criticità;
-`Re` indica il numero di pezzi difettosi che determina subito il rifiuto ed è
-calcolato automaticamente come `Ac + 1`. Più misure fallite della stessa
-criticità sullo stesso pezzo contano come un solo difettoso. Un numero di
-difettosi entro `Ac` produce **PASS** anche se sono presenti misure tecnicamente
-fallite, comprese eventuali misure marcate in deroga. Se invece una criticità
-raggiunge `Re` o supera `Ac`, l'esito è **FAIL** quando tra i difetti della
-criticità rifiutata ne resta almeno uno non derogato; diventa **ACCETTATO IN
-DEROGA** quando tutti quei difetti sono stati autorizzati in deroga.
+`Ac` indica il numero massimo di **campioni difettosi accettabili** per
+criticità. `Re` indica la soglia di rifiuto ed è calcolato come `Ac + 1`.
+Più misure FAIL della stessa criticità sullo stesso campione contano come un
+solo campione difettoso.
+
+Se i difettosi restano entro `Ac` per ogni criticità, il lotto è **PASS**.
+Questo vale anche in presenza di misure FAIL, comprese quelle in deroga.
+Se una criticità raggiunge `Re`, l'esito dipende dalle deroghe:
+
+- **FAIL**: resta almeno un difetto non derogato in una criticità che ha
+  raggiunto la soglia di rifiuto.
+- **ACCETTATO IN DEROGA**: tutti i difetti delle criticità che hanno raggiunto
+  la soglia di rifiuto sono stati autorizzati in deroga.
 
 Nella schermata delle misure setup, fornitore, lotto, piano, quantità e operatore sono
 mostrati come informazioni non modificabili. Setup e modalità sequenziale non
@@ -307,7 +313,7 @@ loro Classe di Collaudo. La classe predefinita non può mai essere eliminata.
 
 Il tab **Campionamento** contiene le tre tabelle modificabili **ESTESO**,
 **NORMALE** e **RIDOTTO**. Per ogni intervallo di quantità del lotto sono
-riportati `n` (pezzi da controllare), `Ac` (non conformi accettabili) e `Re`
+riportati `n` (componenti da controllare), `Ac` (non conformi accettabili) e `Re`
 (non conformi che determinano il rifiuto) per controlli critici, importanti e
 normali. I valori iniziali riproducono il modello
 `piani_campionamento_ingresso.xlsx` e vengono poi salvati nel database.
@@ -326,7 +332,7 @@ misura. Le intestazioni delle colonne spiegano invece il significato dei
 parametri `n`, `Ac` e `Re`.
 
 - **Misura Critica**: il mancato rispetto compromette funzionalità, sicurezza
-  o intercambiabilità del pezzo; richiede controllo dimensionale al 100% e
+  o intercambiabilità del componente; richiede controllo dimensionale al 100% e
   tolleranze strette.
 - **Misura Importante**: influisce sull'accoppiamento o sulle prestazioni del
   componente, con un margine di tolleranza maggiore rispetto alla critica;
@@ -350,11 +356,14 @@ Le colonne `Re` sono calcolate automaticamente come `Ac + 1` e non sono
 modificabili direttamente. Per cambiare una soglia di rifiuto occorre quindi
 modificare il relativo valore `Ac`.
 
-La validazione viene aggiornata sotto ogni tabella dopo ciascuna modifica. Il
-salvataggio controlla che il primo intervallo inizi da 2, che i range siano
-consecutivi e senza sovrapposizioni,
-che l'infinito compaia solo nell'ultima riga, che `n ≥ 1`, `0 ≤ Ac < Re ≤ n`
-e che, per i range finiti, `n` non superi il massimo del lotto.
+La validazione viene aggiornata sotto ogni tabella dopo ciascuna modifica.
+Il salvataggio verifica questi requisiti:
+
+- Il primo intervallo inizia da 2.
+- Gli intervalli sono consecutivi e senza sovrapposizioni.
+- Il limite infinito compare solo nell'ultima riga.
+- I valori rispettano `n ≥ 1` e `0 ≤ Ac < Re ≤ n`.
+- Negli intervalli finiti, `n` non supera il massimo del lotto.
 
 Il nome dell'operatore e la ragione sociale del fornitore sono obbligatori e non
 possono essere duplicati. Gli operatori salvati vengono proposti nel menu del
@@ -497,11 +506,11 @@ Il report può essere rigenerato in seguito dallo **Storico lotti**.
 Aprire **STORICO LOTTI** e scegliere il setup. Il selettore permette di cercare
 digitando anche soltanto una parte del nome, senza distinzione tra maiuscole e
 minuscole. La scheda **Lotti e statistiche** mostra per ogni lotto quantità,
-piano applicato, revisione setup, pezzi controllati, PASS, FAIL, deroghe, esito
+piano applicato, revisione setup, componenti controllati, PASS, FAIL, deroghe, esito
 e stato. Sono presenti soltanto controlli conclusi e salvati.
 
 Il riepilogo e i grafici considerano soltanto i lotti chiusi e non annullati e
-mostrano conformità dei campioni per lotto e FAIL per balloon. La scheda delle
+mostrano conformità dei campioni per lotto e FAIL per pallinatura. La scheda delle
 misure dimensionali riporta, per ogni quota, numero di misure, media, minimo,
 massimo, deviazione standard e FAIL.
 
@@ -515,11 +524,11 @@ Nella finestra **STORICO LOTTI**, premere **Stampa Report Globale** e scegliere
 data inizio e data fine. Il PDF considera tutti i setup e soltanto i lotti
 completi, chiusi e non annullati.
 
-Ogni campione viene contato come un singolo pezzo: la presenza di almeno un
-FAIL non derogato classifica il pezzo come **FAIL**; in assenza di FAIL aperti,
+Ogni campione viene contato come un singolo componente: la presenza di almeno un
+FAIL non derogato classifica il componente come **FAIL**; in assenza di FAIL aperti,
 almeno una misura derogata lo classifica come **ACCETTATO IN DEROGA**;
-altrimenti il pezzo e **PASS**. Il report mostra totali, percentuali, classifica
-fornitori, avviso per meno di 30 pezzi controllati e dettaglio dei lotti.
+altrimenti il componente e **PASS**. Il report mostra totali, percentuali, classifica
+fornitori, avviso per meno di 30 componenti controllati e dettaglio dei lotti.
 
 ## Dove vengono salvati i dati
 
