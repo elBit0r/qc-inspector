@@ -14,6 +14,8 @@ Il software confronta le misure con i limiti impostati, mostra gli esiti
 **PASS/FAIL** e conserva i risultati per lotto. Al termine è possibile generare
 un report PDF con le misure e il disegno pallinato.
 
+**[Scarica il pacchetto `.deb` dalle release GitHub](https://github.com/elBit0r/qc-inspector/releases)**
+
 ## Funzioni principali
 
 - **Pallinatura del disegno:** aggiunta, spostamento e riordino dei richiami sul PDF.
@@ -104,7 +106,10 @@ stampante configurata.
 
 ### Da un pacchetto `.deb`
 
-Se disponi di un pacchetto compatibile con il tuo sistema:
+Apri la [pagina delle release](https://github.com/elBit0r/qc-inspector/releases)
+e scarica il file `.deb` dalla sezione **Assets** della versione desiderata.
+Consulta le note della release per i requisiti di sistema, quindi esegui dalla
+cartella in cui hai salvato il pacchetto:
 
 ```bash
 sudo apt install ./nome-pacchetto.deb
