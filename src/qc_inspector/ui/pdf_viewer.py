@@ -5,13 +5,8 @@ Supporta: zoom, pan, aggiunta/rimozione balloon, modalità view/edit.
 """
 
 import fitz  # PyMuPDF
-from PyQt5.QtWidgets import (
-    QWidget, QScrollArea, QVBoxLayout, QLabel, QSizePolicy,
-    QRubberBand
-)
-from PyQt5.QtCore import (
-    Qt, QPoint, QRect, QSize, pyqtSignal, QPointF
-)
+from PyQt5.QtWidgets import QWidget, QSizePolicy
+from PyQt5.QtCore import Qt, QPoint, pyqtSignal
 from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QBrush, QColor, QFont,
     QWheelEvent, QMouseEvent, QImage

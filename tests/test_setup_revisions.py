@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -72,7 +73,7 @@ class SetupRevisionTests(unittest.TestCase):
                         requirements, "Operatore", None, "Fornitore", None,
                         [valid, dict(valid, sample_num=2, **invalid)],
                     )
-                with db_manager.get_connection() as connection:
+                with closing(db_manager.get_connection()) as connection:
                     self.assertEqual(connection.execute("SELECT COUNT(*) FROM lots").fetchone()[0], 0)
                     self.assertEqual(connection.execute("SELECT COUNT(*) FROM measurements").fetchone()[0], 0)
 

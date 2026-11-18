@@ -315,8 +315,8 @@ Il tab **Campionamento** contiene le tre tabelle modificabili **ESTESO**,
 **NORMALE** e **RIDOTTO**. Per ogni intervallo di quantità del lotto sono
 riportati `n` (componenti da controllare), `Ac` (non conformi accettabili) e `Re`
 (non conformi che determinano il rifiuto) per controlli critici, importanti e
-normali. I valori iniziali riproducono il modello
-`piani_campionamento_ingresso.xlsx` e vengono poi salvati nel database.
+normali. Il programma inizializza i piani con i valori predefiniti inclusi
+nel sorgente e li salva nel database.
 
 Il menu **Classe di campionamento** sopra le tabelle determina quale gruppo di
 tre piani viene visualizzato e modificato. Cambiando classe le tabelle vengono

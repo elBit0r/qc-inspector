@@ -26,7 +26,7 @@ from ..database import db_manager as db
 from ..core.inspection_engine import (
     evaluate_control, get_measurement_status,
     get_control_status, format_tolerance,
-    get_expected_measurement_count, evaluate_sampling_lot,
+    evaluate_sampling_lot,
     STATUS_EMPTY, STATUS_PASS, STATUS_DEROGATION, STATUS_INCOMPLETE,
 )
 from ..core.sampling_plans import recommend_sampling_profile
@@ -2037,9 +2037,6 @@ class InspectionWindow(QMainWindow):
             f"color:{color}; background:{bg}; border:1px solid {border}; "
             "border-radius:5px; padding:5px 12px;"
         )
-
-    def _expected_measurement_count(self) -> int:
-        return get_expected_measurement_count(self._draft_lot(), self._controls)
 
     def _is_lot_complete(self) -> bool:
         return bool(evaluate_sampling_lot(

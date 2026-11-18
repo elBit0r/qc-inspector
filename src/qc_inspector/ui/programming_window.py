@@ -14,13 +14,13 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
     QPushButton, QLabel, QLineEdit, QComboBox,
     QTextEdit, QGroupBox, QFormLayout, QListWidget, QListWidgetItem,
-    QFileDialog, QMessageBox, QSpinBox, QTabWidget,
+    QFileDialog, QMessageBox,
     QToolBar, QAction, QSizePolicy, QFrame, QStyle, QDialog,
     QDialogButtonBox, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QShortcut,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QSize, QEvent
-from PyQt5.QtGui import QIcon, QFont, QColor, QKeySequence
+from PyQt5.QtGui import QFont, QColor, QKeySequence
 
 from ..ui.pdf_viewer import PdfViewerWidget
 from ..ui.decimal_spinbox import DecimalSpinBox

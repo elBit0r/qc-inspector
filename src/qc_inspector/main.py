@@ -15,7 +15,7 @@ if not __package__ and not getattr(sys, "frozen", False):
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QFrame, QSplitter, QToolButton, QTableWidget,
+    QLabel, QToolButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox,
     QComboBox, QPushButton, QScrollArea, QToolTip, QSizePolicy, QStyle,
     QDialog, QTextBrowser

@@ -9,9 +9,9 @@ from reportlab.lib.units import mm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph,
-    Spacer, HRFlowable, KeepTogether, PageBreak
+    Spacer, HRFlowable, PageBreak
 )
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from datetime import datetime
 from typing import List, Dict, Optional
 from html import escape

@@ -17,7 +17,7 @@ from typing import Optional, List, Dict
 
 from ..core.app_config import get_db_path
 from ..core.sampling_plans import (
-    SAMPLING_PLAN_COLUMNS, SAMPLING_PLANS, get_default_sampling_plan,
+    SAMPLING_PLAN_COLUMNS, SAMPLING_PLANS,
     validate_sampling_plans,
 )
 from ..core.inspection_engine import (
@@ -671,30 +671,6 @@ def get_revision_controls(revision_id: int) -> List[Dict]:
 
 # ─── CONTROLS ────────────────────────────────────────────────────────────────
 
-def save_control(setup_id: int, balloon_num: int, balloon_x: float, balloon_y: float,
-                 pdf_page: int, control_type: str, label: str,
-                 nominal: Optional[float], tol_plus: Optional[float],
-                 tol_minus: Optional[float], description: str,
-                 criticality: str = "N") -> int:
-    raise RuntimeError(
-        "Usa save_programming_changes() per salvare controlli e revisione."
-    )
-
-
-def update_control(control_id: int, label: str, nominal: Optional[float],
-                   tol_plus: Optional[float], tol_minus: Optional[float],
-                   description: str, criticality: str = "N"):
-    raise RuntimeError(
-        "Usa save_programming_changes() per salvare controlli e revisione."
-    )
-
-
-def delete_control(control_id: int):
-    raise RuntimeError(
-        "Usa save_programming_changes() per eliminare controlli e revisionare."
-    )
-
-
 def get_controls_for_setup(setup_id: int) -> List[Dict]:
     conn = get_connection()
     rows = conn.execute(
@@ -713,18 +689,6 @@ def get_control(control_id: int) -> Optional[Dict]:
 
 
 # ─── LOTS ────────────────────────────────────────────────────────────────────
-
-def create_lot(setup_id: int, lot_code: str, n_samples: int,
-               operator: str, notes: str, lot_quantity: int = 0,
-               supplier: str = "", supplier_id: Optional[int] = None,
-               operator_id: Optional[int] = None,
-               sampling_profile: Optional[str] = None,
-               sampling_requirements: Optional[Dict] = None) -> int:
-    raise RuntimeError(
-        "La creazione di lotti aperti non è più supportata. Usa "
-        "save_completed_inspection() al termine del controllo."
-    )
-
 
 def save_completed_inspection(
         setup_id: int, setup_revision_id: int, lot_code: str,
@@ -912,14 +876,6 @@ def save_completed_inspection(
         raise
     finally:
         conn.close()
-
-
-def close_lot(lot_id: int):
-    raise RuntimeError("I controlli vengono salvati direttamente come conclusi.")
-
-
-def cancel_lot(lot_id: int):
-    raise RuntimeError("Le bozze interrotte non vengono salvate nel database.")
 
 
 def get_lots_for_setup(setup_id: int) -> List[Dict]:
@@ -1442,14 +1398,6 @@ def get_lot_report_data(lot_id: int) -> Optional[Dict]:
 
 # ─── MEASUREMENTS ────────────────────────────────────────────────────────────
 
-def save_measurement(lot_id: int, control_id: int, sample_num: int,
-                     value_num: Optional[float], value_bool: Optional[bool],
-                     pass_fail: bool) -> int:
-    raise RuntimeError(
-        "Le misure vengono salvate insieme al controllo completo."
-    )
-
-
 def get_measurements_for_lot(lot_id: int) -> List[Dict]:
     conn = get_connection()
     rows = conn.execute(
@@ -1458,23 +1406,6 @@ def get_measurements_for_lot(lot_id: int) -> List[Dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
-
-def accept_measurement_in_derogation(
-        lot_id: int, control_id: int, sample_num: int,
-        reason: str, authorized_by: str, accepted_by: str) -> bool:
-    raise RuntimeError("Le deroghe sono definitive al salvataggio del controllo.")
-
-
-def accept_measurements_in_derogation(
-        lot_id: int, measurements: List[tuple[int, int]],
-        reason: str, authorized_by: str, accepted_by: str) -> bool:
-    raise RuntimeError("Le deroghe sono definitive al salvataggio del controllo.")
-
-
-def revoke_measurement_derogation(
-        lot_id: int, control_id: int, sample_num: int) -> bool:
-    raise RuntimeError("Le deroghe sono definitive al salvataggio del controllo.")
 
 
 def get_lot_summary(lot_id: int) -> Dict:
