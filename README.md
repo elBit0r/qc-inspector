@@ -17,6 +17,11 @@ controlli Sì/No. Il software verifica automaticamente la conformità rispetto
 ai criteri impostati e registra i risultati per lotto. Al termine può generare
 un report PDF contenente le misure e il disegno pallinato.
 
+Al primo avvio con un database nuovo, in **Programmazione** trovi il setup
+**PF-001 - Piastra di fissaggio (esempio)** con il PDF e cinque controlli
+dimensionali già configurati. Per provare un collaudo, apri **Controllo** e
+seleziona il setup, **Operatore dimostrativo** e **Fornitore dimostrativo**.
+
 **[Scarica il pacchetto `.deb` dalle release GitHub](https://github.com/elBit0r/qc-inspector/releases)**
 
 ## Funzioni principali

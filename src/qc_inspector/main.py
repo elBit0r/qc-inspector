@@ -715,7 +715,9 @@ def main():
 
     try:
         check_runtime_access()
-        initialize_database()
+        initialize_database(example_pdf=os.path.join(
+            _resource_root(), "assets", "examples", "piastra-fissaggio-esempio.pdf"
+        ))
     except PermissionError as exc:
         QMessageBox.critical(None, "QC Inspector - Permessi insufficienti",
                              permission_error_message(exc))

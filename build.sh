@@ -87,14 +87,6 @@ pdf_dir = pdf
 decimal_separator = .
 EOF
 
-echo "Creo database portable vuoto con lo schema corrente..."
-PORTABLE_DB="$PACKAGE_DIR/${APP_NAME}/qc_database.sqlite"
-(
-  cd "$ROOT_DIR"
-  "$VENV_PY" -m qc_inspector.database.schema_manager \
-    "$PORTABLE_DB" --no-backup
-)
-
 cat > "$PACKAGE_DIR/README.txt" <<EOF
 QC Inspector package (Linux x86_64)
 Version: $APP_VERSION
@@ -112,7 +104,7 @@ Version: $APP_VERSION
 
 Nota:
 - Il pacchetto portable usa il config accanto all'eseguibile.
-- Il database portable incluso e vuoto e viene ricreato a ogni build.
+- Al primo avvio viene creato il database con un setup di esempio.
 - Il pacchetto .deb usa invece /etc/qc-inspector/qc_inspector.conf.
 EOF
 

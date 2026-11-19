@@ -3,12 +3,7 @@ programming_window.py
 Finestra di programmazione: carica PDF, posiziona balloon, definisce controlli.
 """
 
-import hashlib
-import os
-import shutil
-import tempfile
 from datetime import datetime
-from pathlib import Path
 
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
@@ -27,6 +22,7 @@ from ..ui.decimal_spinbox import DecimalSpinBox
 from ..database import db_manager as db
 from ..core.inspection_engine import format_tolerance
 from ..core.app_config import get_pdf_dir
+from ..core.pdf_storage import store_pdf
 
 
 class TimestampTableWidgetItem(QTableWidgetItem):
@@ -1065,46 +1061,8 @@ class ProgrammingWindow(QMainWindow):
 
         return bar
 
-    @staticmethod
-    def _sha256_file(path: str) -> str:
-        h = hashlib.sha256()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b""):
-                h.update(chunk)
-        return h.hexdigest()
-
     def _store_pdf_in_hash_path(self, source_path: str) -> str:
-        source = Path(source_path)
-        pdf_hash = self._sha256_file(str(source))
-        target_dir = Path(get_pdf_dir())
-        target_path = target_dir / f"{pdf_hash}.pdf"
-        target_dir.mkdir(parents=True, exist_ok=True)
-        if target_path.is_symlink():
-            raise ValueError("Il PDF di destinazione non può essere un link simbolico.")
-        if target_path.exists() and not target_path.is_file():
-            raise ValueError("Destinazione PDF non valida.")
-        if not target_path.exists():
-            fd, temporary_path = tempfile.mkstemp(prefix=".import-", dir=target_dir)
-            try:
-                with os.fdopen(fd, "wb") as destination, source.open("rb") as origin:
-                    shutil.copyfileobj(origin, destination)
-                    destination.flush()
-                    os.fsync(destination.fileno())
-                    if self._sha256_file(temporary_path) != pdf_hash:
-                        raise ValueError("Il PDF sorgente è cambiato durante la copia.")
-                    directory_gid = target_dir.stat().st_gid
-                    if os.fstat(destination.fileno()).st_gid != directory_gid:
-                        os.fchown(destination.fileno(), -1, directory_gid)
-                    os.fchmod(destination.fileno(), 0o640)
-                # Pubblica il file completo senza sovrascrivere import concorrenti.
-                try:
-                    os.link(temporary_path, target_path)
-                except FileExistsError:
-                    if target_path.is_symlink() or not target_path.is_file():
-                        raise ValueError("Destinazione PDF non valida.")
-            finally:
-                os.unlink(temporary_path)
-        return str(target_path)
+        return store_pdf(source_path, get_pdf_dir())
 
     # ─── Azioni toolbar ──────────────────────────────────────────────────────
 

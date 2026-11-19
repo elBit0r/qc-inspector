@@ -1,3 +1,4 @@
+import hashlib
 import os
 import stat
 import tempfile
@@ -35,7 +36,7 @@ class PdfImportTests(unittest.TestCase):
             source.write_bytes(b"fixture")
             target = root / "shared"
             with patch("qc_inspector.ui.programming_window.get_pdf_dir", return_value=str(target)), patch(
-                "qc_inspector.ui.programming_window.shutil.copyfileobj", side_effect=OSError("disk full")
+                "qc_inspector.core.pdf_storage.shutil.copyfileobj", side_effect=OSError("disk full")
             ), self.assertRaises(OSError):
                 ProgrammingWindow._store_pdf_in_hash_path(ProgrammingWindow, str(source))
             self.assertEqual(list(target.iterdir()), [])
@@ -47,7 +48,7 @@ class PdfImportTests(unittest.TestCase):
             source.write_bytes(b"fixture")
             shared = root / "shared"
             shared.mkdir()
-            target = shared / (ProgrammingWindow._sha256_file(str(source)) + ".pdf")
+            target = shared / (hashlib.sha256(source.read_bytes()).hexdigest() + ".pdf")
             target.symlink_to(source)
             with patch("qc_inspector.ui.programming_window.get_pdf_dir", return_value=str(shared)):
                 with self.assertRaisesRegex(ValueError, "simbolico"):

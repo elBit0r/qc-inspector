@@ -16,7 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from ..core.app_config import get_db_path
+from ..core.app_config import get_db_path, get_pdf_dir
+from ..core.pdf_storage import store_pdf
 from ..core.sampling_plans import (
     SAMPLING_PLAN_COLUMNS,
     SAMPLING_PLANS,
@@ -310,7 +311,9 @@ def get_schema_version(database_path: Optional[str] = None) -> int:
 
 def initialize_database(
         database_path: Optional[str] = None,
-        create_backup: bool = True) -> int:
+        create_backup: bool = True,
+        *,
+        example_pdf: str | Path | None = None) -> int:
     """Crea lo schema corrente o applica in ordine le migrazioni note."""
     path = database_path or get_db_path()
     db_dir = os.path.dirname(path)
@@ -334,7 +337,7 @@ def initialize_database(
         tables = _user_tables(conn)
         database_was_empty = not tables
         if not tables:
-            _create_new_v1(conn)
+            _create_new_v1(conn, example_pdf)
         elif version == 0 and _matches_columns(conn, LEGACY_PRODUCTION_COLUMNS):
             if create_backup:
                 _backup_database(conn, path)
@@ -445,12 +448,61 @@ def _insert_sampling_defaults(
             )
 
 
-def _create_new_v1(conn: sqlite3.Connection):
+def _insert_example_setup(
+        conn: sqlite3.Connection, class_id: int, example_pdf: str | Path):
+    pdf_path = store_pdf(example_pdf, get_pdf_dir())
+    now = datetime.now().isoformat()
+    setup_id = conn.execute(
+        """INSERT INTO setups
+           (name, description, pdf_path, sampling_class_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        ("PF-001 - Piastra di fissaggio (esempio)",
+         "Piastra dimostrativa con cinque controlli dimensionali.",
+         pdf_path, class_id, now, now),
+    ).lastrowid
+    # Coordinate relative alla tavola, con origine in alto a sinistra.
+    checks = (
+        ("Lunghezza", 120.00, 0.20, "N", 0.40, 0.20),
+        ("Larghezza", 60.00, 0.15, "N", 0.041, 0.43),
+        ("Spessore", 8.00, 0.10, "I", 0.55, 0.70),
+        ("Diametro foro sinistro", 10.00, 0.05, "C", 0.175, 0.39),
+        ("Interasse dei fori", 70.00, 0.10, "I", 0.38, 0.52),
+    )
+    for number, (label, nominal, tolerance, criticality, x, y) in enumerate(checks, 1):
+        conn.execute(
+            """INSERT INTO controls
+               (setup_id, balloon_num, balloon_x, balloon_y, pdf_page, control_type,
+                criticality, label, nominal, tol_plus, tol_minus, description)
+               VALUES (?, ?, ?, ?, 0, 'dimensional', ?, ?, ?, ?, ?, '')""",
+            (setup_id, number, x, y, criticality, label, nominal, tolerance, tolerance),
+        )
+
+
+def _insert_example_contacts(conn: sqlite3.Connection):
+    now = datetime.now().isoformat()
+    notes = "Anagrafica dimostrativa per i collaudi di prova."
+    conn.execute(
+        """INSERT INTO operators (name, notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?) ON CONFLICT(name) DO NOTHING""",
+        ("Operatore dimostrativo", notes, now, now),
+    )
+    conn.execute(
+        """INSERT INTO suppliers (name, notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?) ON CONFLICT(name) DO NOTHING""",
+        ("Fornitore dimostrativo", notes, now, now),
+    )
+
+
+def _create_new_v1(
+        conn: sqlite3.Connection, example_pdf: str | Path | None = None):
     conn.execute("BEGIN IMMEDIATE")
     try:
         _create_schema_v1(conn)
         default_class_id = _insert_default_class(conn)
         _insert_sampling_defaults(conn, default_class_id)
+        if example_pdf is not None:
+            _insert_example_setup(conn, default_class_id, example_pdf)
+            _insert_example_contacts(conn)
         conn.execute("PRAGMA user_version = 1")
         conn.commit()
     except Exception:

@@ -34,6 +34,7 @@ include = ["qc_inspector*"]
 [tool.setuptools.package-data]
 qc_inspector = [
     "assets/audio/*.oga",
+    "assets/examples/*.pdf",
     "assets/icons/*.svg",
     "assets/icons/*.png",
     "main-icon.png",

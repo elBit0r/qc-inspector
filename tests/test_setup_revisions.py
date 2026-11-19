@@ -5,7 +5,61 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
+import qc_inspector
 from qc_inspector.database import db_manager, schema_manager
+
+
+EXAMPLE_PDF = (Path(qc_inspector.__file__).parent / "assets" / "examples"
+               / "piastra-fissaggio-esempio.pdf")
+
+
+class ExampleSetupTests(unittest.TestCase):
+    def test_new_database_gets_one_example_with_five_revision_controls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = str(root / "qc.sqlite")
+            pdf_dir = root / "pdf"
+            with patch.object(schema_manager, "get_pdf_dir", return_value=str(pdf_dir)), \
+                    patch.object(db_manager, "get_db_path", return_value=database):
+                schema_manager.initialize_database(database, example_pdf=EXAMPLE_PDF)
+                schema_manager.initialize_database(database, example_pdf=EXAMPLE_PDF)
+                setup, = db_manager.get_all_setups()
+                self.assertTrue(setup["name"].startswith("PF-001"))
+                stored_pdf = Path(setup["pdf_path"])
+                self.assertEqual(stored_pdf.parent, pdf_dir)
+                self.assertEqual(stored_pdf.read_bytes(), EXAMPLE_PDF.read_bytes())
+                controls = db_manager.get_revision_controls(setup["setup_revision_id"])
+                self.assertEqual([row["nominal"] for row in controls], [120, 60, 8, 10, 70])
+                self.assertEqual(
+                    [(row["tol_plus"], row["tol_minus"]) for row in controls],
+                    [(0.20, 0.20), (0.15, 0.15), (0.10, 0.10),
+                     (0.05, 0.05), (0.10, 0.10)],
+                )
+                self.assertEqual([row["criticality"] for row in controls], ["N", "N", "I", "C", "I"])
+                operator, = db_manager.get_all_operators()
+                supplier, = db_manager.get_all_suppliers()
+                self.assertEqual(operator["name"], "Operatore dimostrativo")
+                self.assertEqual(supplier["name"], "Fornitore dimostrativo")
+                self.assertEqual(db_manager.get_lots_for_setup(setup["id"]), [])
+                db_manager.delete_setup(setup["id"])
+                db_manager.delete_operator(operator["id"])
+                db_manager.delete_supplier(supplier["id"])
+                schema_manager.initialize_database(database, example_pdf=EXAMPLE_PDF)
+                self.assertEqual(db_manager.get_all_setups(), [])
+                self.assertEqual(db_manager.get_all_operators(), [])
+                self.assertEqual(db_manager.get_all_suppliers(), [])
+
+    def test_existing_empty_database_is_not_seeded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = str(Path(directory) / "existing.sqlite")
+            schema_manager.initialize_database(database)
+            with patch.object(schema_manager, "get_pdf_dir") as get_pdf_dir, \
+                    patch.object(db_manager, "get_db_path", return_value=database):
+                schema_manager.initialize_database(database, example_pdf=EXAMPLE_PDF)
+                self.assertEqual(db_manager.get_all_setups(), [])
+                self.assertEqual(db_manager.get_all_operators(), [])
+                self.assertEqual(db_manager.get_all_suppliers(), [])
+                get_pdf_dir.assert_not_called()
 
 
 class SetupRevisionTests(unittest.TestCase):
