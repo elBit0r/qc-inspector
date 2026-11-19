@@ -112,10 +112,11 @@ Le dipendenze Python vengono installate automaticamente. Con l'ambiente attivo
 puoi avviare il programma anche con `qc-inspector`. In PyCharm puoi eseguire
 il `main.py` nella root usando l'interprete del progetto.
 
-Su Ubuntu, per il feedback audio:
+Su Ubuntu, Qt Multimedia richiede `libpulse-mainloop-glib0`. Per il feedback
+audio servono anche le librerie e i plugin GStreamer:
 
 ```bash
-sudo apt install libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+sudo apt install libpulse-mainloop-glib0 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
 ```
 
 La stampa delle etichette richiede il client CUPS (`cups-client`) e una
