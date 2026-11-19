@@ -17,11 +17,6 @@ controlli Sì/No. Il software verifica automaticamente la conformità rispetto
 ai criteri impostati e registra i risultati per lotto. Al termine può generare
 un report PDF contenente le misure e il disegno pallinato.
 
-Al primo avvio con un database nuovo, in **Programmazione** trovi il setup
-**PF-001 - Piastra di fissaggio (esempio)** con il PDF e cinque controlli
-dimensionali già configurati. Per provare un collaudo, apri **Controllo** e
-seleziona il setup, **Operatore dimostrativo** e **Fornitore dimostrativo**.
-
 **[Scarica il pacchetto `.deb` dalle release GitHub](https://github.com/elBit0r/qc-inspector/releases)**
 
 ## Funzioni principali
@@ -41,11 +36,22 @@ seleziona il setup, **Operatore dimostrativo** e **Fornitore dimostrativo**.
 
 ## Come si usa
 
+Per il **primo collaudo**, un database nuovo include il setup
+**PF-001 - Piastra di fissaggio (esempio)** con cinque controlli già pallinati,
+**Operatore dimostrativo** e **Fornitore dimostrativo**. In **Controllo** scegli
+questi tre elementi, inserisci il lotto `PROVA-001` con quantità `1` e premi
+**Avvia controllo**. Usa i valori nominali indicati sul disegno per ottenere un
+PASS. Su un database già esistente puoi creare un setup di prova importando il
+[PDF della piastra](src/qc_inspector/assets/examples/piastra-fissaggio-esempio.pdf).
+
+Per preparare un collaudo su un tuo disegno:
+
 1. **Prepara il controllo.** In Programmazione crea un setup, carica il disegno
    PDF e seleziona la Classe di Collaudo. Posiziona le pallinature e definisci i
    controlli, includendone almeno uno critico. Premi **Applica controllo** per
    ciascuno e **Salva setup** per registrare il lavoro.
-2. **Avvia il collaudo.** Seleziona setup, fornitore, operatore e dati del lotto.
+2. **Avvia il collaudo.** Se necessario, crea operatore e fornitore in
+   **Configurazione**. In **Controllo** selezionali insieme al setup e inserisci i dati del lotto.
    Scegli il piano di campionamento e verifica la quantità di componenti da controllare.
 3. **Misura i componenti.** Seguendo i richiami sul disegno, inserisci le misure
    rilevate o le risposte Sì/No. Il programma mostra gli esiti e l'avanzamento.
@@ -134,13 +140,16 @@ dal menu delle applicazioni oppure con `qc-inspector`.
 
 Estrai l'archivio, entra nella cartella `qc-inspector`, copia
 `qc_inspector.conf.sample` come `qc_inspector.conf` e avvia `./qc-inspector`.
-Su Ubuntu sono necessarie le dipendenze audio indicate sopra.
+Con i percorsi predefiniti, al primo avvio il programma crea il database e
+salva i PDF accanto all'eseguibile. Usa una cartella in cui puoi scrivere.
+Su Ubuntu, installa le dipendenze audio indicate sopra per i suoni di esito.
 
 ## Configurazione e documentazione
 
 Da **Configurazione** puoi gestire operatori, fornitori, classi e piani di
 campionamento. Nella scheda **Opzioni** trovi stampante, copie delle etichette,
-separatore decimale, suoni di esito e testo del footer dei report.
+separatore decimale, suoni di esito e testo a piè di pagina dei report.
+I percorsi del database e dei PDF sono consultabili nella stessa scheda.
 
 Il **Manuale d'uso** è disponibile nel launcher e nel
 [file incluso nel progetto](src/qc_inspector/ISTRUZIONI_USO.md).

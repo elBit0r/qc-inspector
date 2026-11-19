@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.6 — In preparazione
+
+- I nuovi database includono la piastra PF-001 con cinque controlli, un
+  operatore e un fornitore dimostrativi.
+- Il pacchetto portable inizializza il database al primo avvio.
+- Il manuale descrive il collaudo di prova e le opzioni disponibili nella GUI.
+- La generazione dei report rimuove i file temporanei anche in caso di errore.
+
 ## 1.3.5 — 2026-09-29
 
 Prima release pubblica, pubblicata con tag `v1.3.5` e pacchetto `.deb` per

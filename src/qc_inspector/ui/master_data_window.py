@@ -487,20 +487,20 @@ class SamplingPlansTab(QWidget):
         "C": (
             "Misura Critica\n"
             "Quota il cui mancato rispetto compromette la funzionalità,\n"
-            "la sicurezza o l'intercambiabilità del pezzo; richiede controllo\n"
-            "dimensionale al 100% e tolleranze strette."
+            "la sicurezza o l'intercambiabilità del pezzo. Il piano applicato\n"
+            "determina il numero di pezzi da controllare."
         ),
         "I": (
             "Misura Importante\n"
             "Quota che influisce sull'accoppiamento o sulle prestazioni del\n"
-            "componente ma con margine di tolleranza maggiore rispetto alla\n"
-            "critica; controllo a campionamento."
+            "componente. Il numero di pezzi da controllare è indicato\n"
+            "nella colonna Importante del piano applicato."
         ),
         "N": (
             "Misura Normale\n"
             "Quota di riferimento generale, senza impatto diretto su\n"
-            "funzionalità o accoppiamenti; tolleranza secondo norma generale\n"
-            "e controllo occasionale."
+            "funzionalità o accoppiamenti. Il numero di pezzi da controllare\n"
+            "è indicato nella colonna Normale del piano applicato."
         ),
     }
     _COLUMN_COLORS = {
@@ -1003,7 +1003,7 @@ class OptionsTab(QWidget):
         self.audio_status.setWordWrap(True)
         self._audio_preview.error_occurred.connect(self.audio_status.setText)
         self._audio_preview.playback_started.connect(
-            lambda: self.audio_status.setText("Riproduzione avviata. Se non senti il suono, verifica volume e uscita audio della VM.")
+            lambda: self.audio_status.setText("Riproduzione avviata. Se non senti il suono, verifica il volume e l'uscita audio.")
         )
         for key, label, passed in (("audio_pass_file", "Suono PASS:", True),
                                    ("audio_fail_file", "Suono FAIL:", False)):

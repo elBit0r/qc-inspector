@@ -29,7 +29,9 @@ jobs:
       - name: Test e sintassi shell
         run: |
           .venv/bin/python -m unittest discover -s tests -v
-          bash -n build.sh build_deb.sh tools/check_audio_runtime.sh
+          for script in build.sh build_deb.sh tools/check_audio_runtime.sh; do
+            bash -n "$script"
+          done
       - name: Build candidato su tag o richiesta manuale
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         run: bash build_deb.sh

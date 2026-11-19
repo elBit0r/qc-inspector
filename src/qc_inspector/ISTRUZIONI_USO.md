@@ -12,7 +12,7 @@ L'app ha quattro funzioni principali:
   regole automatiche e piani di campionamento.
 
 Dalla schermata principale il pulsante **Manuale d’uso**, accanto alla
-versione, apre questo documento con l'applicazione predefinita del sistema.
+versione, apre questo documento in una finestra di QC Inspector.
 
 La schermata principale mostra inoltre gli ultimi controlli e il grafico
 **Qualità fornitori**, filtrabile sugli ultimi 6, 12 o 24 mesi. Le barre
@@ -41,11 +41,26 @@ Nel pacchetto portable, avviare l'eseguibile dalla cartella dell'app:
 ./qc-inspector
 ```
 
+### Primo collaudo con la piastra dimostrativa
+
+Un database nuovo include il setup **PF-001 - Piastra di fissaggio (esempio)**,
+con un PDF e cinque misure già pallinate. I database già inizializzati
+mantengono le anagrafiche e i setup esistenti.
+
+1. Aprire **Controllo** e selezionare il setup **PF-001 - Piastra di fissaggio
+   (esempio)**, **Fornitore dimostrativo** e **Operatore dimostrativo**.
+2. Inserire `PROVA-001` come numero lotto e `1` come quantità. Premere
+   **Avvia controllo**.
+3. Inserire, nell'ordine, **120,00**, **60,00**, **8,00**, **10,00** e
+   **70,00 mm**. Sono i valori nominali indicati sul disegno.
+4. Premere **Salva controllo / Genera report**. Per consultare il risultato,
+   aprire **Storico lotti** e selezionare il setup dimostrativo.
+
 ## Modalità Programmazione
 
 Usare questa modalità per creare o modificare un setup di controllo.
 
-1. Aprire **PROGRAMMAZIONE**.
+1. Aprire **Programmazione** e scegliere **Nuovo setup** in **Gestione setup**.
 2. Inserire il nome del setup e, se utile, la sua descrizione.
 3. Selezionare la **Classe di Collaudo** dalla Configurazione.
 4. Caricare il PDF del disegno tecnico.
@@ -119,6 +134,8 @@ sostituzione.
 - Tasto centrale + trascina: spostamento.
 - Doppio clic sul PDF fuori dalle pallinature: reset zoom/spostamento.
 - Pulsanti freccia: cambio pagina PDF.
+- In Programmazione e Controllo, **F11** attiva o disattiva lo schermo intero.
+  **Esc** esce dallo schermo intero.
 
 ## Modalità Controllo
 
@@ -135,12 +152,13 @@ Usare questa modalità per eseguire il collaudo di un lotto.
    - quantità da controllare, calcolata automaticamente;
    - eventuale controllo sequenziale;
    - operatore, scegliendolo dalla Configurazione.
-3. Premere **Avvia controllo**. Il lotto viene creato e si apre direttamente la schermata di inserimento misure.
+3. Premere **Avvia controllo**. Si apre la schermata delle misure con una bozza
+   in memoria. Il lotto viene registrato nel database al salvataggio finale.
 
 Selezionando il setup vengono mostrati anche la sua **Descrizione** e la
 **Classe di Collaudo** in campi non modificabili. Dopo la scelta del fornitore,
-il riquadro dello storico indica quanti controlli esistono già per la stessa
-coppia setup-fornitore, quanti sono conclusi e gli ultimi cinque con data,
+il riquadro dello storico mostra quanti controlli sono stati salvati per la
+stessa coppia setup-fornitore e gli ultimi cinque con data,
 lotto, esito e stato.
 
 Il programma suggerisce il piano **Esteso**, **Normale** o **Ridotto** in base
@@ -331,15 +349,11 @@ tre badge viene mostrata la descrizione completa della relativa tipologia di
 misura. Le intestazioni delle colonne spiegano invece il significato dei
 parametri `n`, `Ac` e `Re`.
 
-- **Misura Critica**: il mancato rispetto compromette funzionalità, sicurezza
-  o intercambiabilità del componente; richiede controllo dimensionale al 100% e
-  tolleranze strette.
-- **Misura Importante**: influisce sull'accoppiamento o sulle prestazioni del
-  componente, con un margine di tolleranza maggiore rispetto alla critica;
-  viene controllata a campionamento.
-- **Misura Normale**: quota di riferimento generale senza impatto diretto su
-  funzionalità o accoppiamenti; segue la tolleranza generale e un controllo
-  occasionale.
+- **Misura Critica** riguarda funzionalità, sicurezza o intercambiabilità.
+- **Misura Importante** riguarda accoppiamento o prestazioni del componente.
+- **Misura Normale** riguarda una quota di riferimento generale.
+
+Il numero di campioni per ciascuna criticità è determinato dal piano applicato.
 
 - Doppio clic su una cella per modificarla con un editor che accetta solo interi.
 - **Aggiungi riga** crea un nuovo intervallo dopo l'ultimo.
@@ -361,14 +375,25 @@ Il salvataggio verifica questi requisiti:
 
 - Il primo intervallo inizia da 2.
 - Gli intervalli sono consecutivi e senza sovrapposizioni.
-- Il limite infinito compare solo nell'ultima riga.
+- L'ultima riga deve avere limite superiore infinito (`∞`).
 - I valori rispettano `n ≥ 1` e `0 ≤ Ac < Re ≤ n`.
 - Negli intervalli finiti, `n` non supera il massimo del lotto.
 
 Il nome dell'operatore e la ragione sociale del fornitore sono obbligatori e non
 possono essere duplicati. Gli operatori salvati vengono proposti nel menu del
-Controllo; i lotti gia registrati conservano comunque il nome storico anche se
-l'operatore viene successivamente modificato o eliminato.
+Controllo. I lotti già registrati conservano il nome storico dell'operatore e
+del fornitore anche dopo modifiche alle anagrafiche.
+
+### Opzioni
+
+In **Configurazione → Opzioni**, impostare stampante CUPS, copie dell'etichetta,
+separatore decimale, feedback audio e testo a piè di pagina dei report. Premere
+**Salva opzioni** per applicare le modifiche. I campi **Database** e
+**Cartella PDF** mostrano i percorsi effettivi in sola lettura.
+
+Per ciascun esito PASS o FAIL si può scegliere un file audio con **Sfoglia…**,
+ascoltarlo con **Prova** e tornare al suono incluso con **Predefinito**.
+I file personalizzati devono rimanere accessibili nel percorso selezionato.
 
 ## Modalità Standard
 
@@ -402,8 +427,10 @@ Controllo 2
 Controllo 3
 ```
 
-Dentro ogni tab si inserisce la misura dello stesso controllo per tutti i
-campioni. La criticità del controllo è indicata nell'intestazione del tab.
+Dentro ogni tab si inserisce la misura dello stesso controllo per i campioni
+previsti dalla sua criticità, indicata nell'intestazione.
+Per le quote dimensionali il riepilogo mostra la media e, da 10 misure con
+dispersione positiva e limiti validi, le stime di Cp e Cpk.
 
 Esempio: 5 campioni e controllo "Diametro foro":
 
@@ -461,17 +488,8 @@ superato la soglia sono derogati, il lotto è **ACCETTATO IN DEROGA**; se ne
 rimane almeno uno non derogato, il lotto è **FAIL**. I difetti entro `Ac` sono
 ammessi dal piano e il lotto resta **PASS**.
 
-Il separatore decimale è configurabile nel file `qc_inspector.conf`:
-
-```text
-decimal_separator = .
-```
-
-oppure:
-
-```text
-decimal_separator = ,
-```
+Per cambiare il separatore decimale, usare **Configurazione → Opzioni**,
+salvare e riaprire la finestra operativa.
 
 ## Fine controllo
 
@@ -493,11 +511,10 @@ Il report può essere rigenerato in seguito dallo **Storico lotti**.
 - Chiudendo con la X o premendo **Interrompere Controllo** viene avvisato che i
   dati della bozza saranno persi. Confermando non viene creato alcun record
   aperto o annullato; scegliendo **No**, la finestra resta aperta.
-- La finestra Programmazione chiede conferma prima di chiudersi, perché eventuali
-  valori presenti nei campi e non salvati potrebbero andare persi.
-- Storico lotti può essere chiuso direttamente. Se nelle tabelle di
-  **Configurazione > Campionamento** sono presenti modifiche non salvate, alla
-  chiusura viene proposto **Salva**, **Scarta** o **Annulla**.
+- Quando ci sono modifiche non salvate, **Programmazione** chiede se salvarle,
+  scartarle o annullare la chiusura. In **Configurazione** la conferma vale per
+  le tabelle di campionamento e le opzioni.
+- **Storico lotti** può essere chiuso direttamente.
 - Il menu principale non si chiude finché esiste una finestra operativa aperta;
   indica quali finestre devono essere chiuse e ne porta una in primo piano.
 
@@ -527,7 +544,7 @@ completi, chiusi e non annullati.
 Ogni campione viene contato come un singolo componente: la presenza di almeno un
 FAIL non derogato classifica il componente come **FAIL**; in assenza di FAIL aperti,
 almeno una misura derogata lo classifica come **ACCETTATO IN DEROGA**;
-altrimenti il componente e **PASS**. Il report mostra totali, percentuali, classifica
+altrimenti il componente è **PASS**. Il report mostra totali, percentuali, classifica
 fornitori, avviso per meno di 30 componenti controllati e dettaglio dei lotti.
 
 ## Dove vengono salvati i dati
@@ -551,14 +568,14 @@ Il database SQLite contiene:
 - misure registrate;
 - esito finale dei lotti.
 
-Al primo avvio della versione 1.3.0 lo schema viene aggiornato alla versione 3:
-prima viene creato un backup, poi i vecchi lotti aperti o annullati vengono
-rimossi. Se esistono setup con lo stesso nome, quello collegato allo storico
-conserva il nome e gli altri ricevono il suffisso `[duplicato ID]`.
+Quando un database compatibile viene migrato allo schema 3, il programma crea
+prima un backup e rimuove i vecchi lotti aperti o annullati. Se esistono setup
+con lo stesso nome, il programma dà precedenza a quelli collegati allo storico
+e assegna agli altri il suffisso `[duplicato ID]`.
 
 La schermata iniziale mostra gli ultimi sei controlli con data/ora, codice
-articolo (nome setup), descrizione, numero lotto, quantita lotto, quantita
-controllata, operatore ed esito. Per i lotti creati prima dell'introduzione della quantita
+articolo (nome setup), descrizione, numero lotto, quantità lotto, quantità
+controllata, operatore ed esito. Per i lotti creati prima dell'introduzione della quantità
 lotto viene mostrato `—`.
 
 Nel pacchetto `.deb` il database predefinito è:
@@ -604,7 +621,8 @@ Nel pacchetto portable:
 qc_inspector.conf
 ```
 
-accanto all'eseguibile.
+accanto all'eseguibile. Con le impostazioni predefinite, nella stessa cartella
+si trovano anche `qc_database.sqlite` e la directory `pdf/`.
 
 Nell'avvio dai sorgenti o da un package Python:
 
@@ -638,22 +656,12 @@ Dopo il comando, l'utente deve chiudere la sessione e rientrare.
 
 ## Etichette
 
-Le etichette sono configurate in `qc_inspector.conf`:
-
-```text
-label_enable = YES
-label_printer = Zebra-ZPL
-labels_qta = 2
-```
+In **Configurazione → Opzioni**, abilitare **Proponi la stampa dell'etichetta
+a fine controllo**, scegliere il nome della stampante CUPS e il numero di
+copie, quindi premere **Salva opzioni**.
 
 Per stampare serve il comando di sistema `lp`. Nel pacchetto `.deb` viene
 richiesta la dipendenza `cups-client`.
-
-Per disabilitare la stampa etichette:
-
-```text
-label_enable = NO
-```
 
 ## Troubleshooting
 
@@ -687,23 +695,12 @@ Verificare il nome stampante:
 lpstat -p
 ```
 
-Aggiornare `label_printer` in `qc_inspector.conf`.
+Aggiornare **Nome stampante CUPS** in **Configurazione → Opzioni**.
 
 ### Il separatore decimale non è quello atteso
 
-Controllare:
-
-```text
-decimal_separator = .
-```
-
-oppure:
-
-```text
-decimal_separator = ,
-```
-
-Riavviare l'app dopo la modifica.
+Verificare il valore di **Separatore decimale** in **Configurazione → Opzioni**.
+Dopo aver salvato, riaprire la finestra operativa.
 
 ### Non vedo correttamente alcune icone/testi
 

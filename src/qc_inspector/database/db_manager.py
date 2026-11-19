@@ -448,20 +448,6 @@ def save_sampling_plans(sampling_class_id: int,
 
 # ─── SETUP ───────────────────────────────────────────────────────────────────
 
-def save_setup(name: str, description: str, pdf_path: str,
-               sampling_class_id: int) -> int:
-    raise RuntimeError(
-        "Usa save_programming_changes() per creare setup e relativa revisione."
-    )
-
-
-def update_setup(setup_id: int, name: str, description: str, pdf_path: str,
-                 sampling_class_id: int):
-    raise RuntimeError(
-        "Usa save_programming_changes() per aggiornare setup e revisione."
-    )
-
-
 def save_programming_changes(
         setup_id: Optional[int], name: str, description: str, pdf_path: str,
         sampling_class_id: int,

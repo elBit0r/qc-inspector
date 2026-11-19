@@ -224,18 +224,6 @@ def generate_report(output_path: str, setup: Dict,
         controls: lista controlli del setup
         summary: dizionario da db.get_lot_summary()
     """
-    # 1) Genera il report tabellare in un file temporaneo
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp_report_path = tmp.name
-
-    doc = SimpleDocTemplate(
-        tmp_report_path,
-        pagesize=landscape(A4),
-        leftMargin=5*mm, rightMargin=5*mm,
-        topMargin=5*mm, bottomMargin=12*mm,
-        title=f"Report collaudo — Lotto {summary['lot']['lot_code']}"
-    )
-
     styles = getSampleStyleSheet()
     story = []
 
@@ -261,14 +249,17 @@ def generate_report(output_path: str, setup: Dict,
     # ─── Footer info ─────────────────────────────────────────────────────────
     story += _build_footer(summary, styles)
 
-    doc.build(story)
-
-    # 2) Costruisce PDF finale: setup (con balloon) + report tabellare
-    try:
+    with tempfile.TemporaryDirectory(prefix="qc-inspector-report-") as directory:
+        tmp_report_path = os.path.join(directory, "report.pdf")
+        doc = SimpleDocTemplate(
+            tmp_report_path,
+            pagesize=landscape(A4),
+            leftMargin=5*mm, rightMargin=5*mm,
+            topMargin=5*mm, bottomMargin=12*mm,
+            title=f"Report collaudo — Lotto {summary['lot']['lot_code']}"
+        )
+        doc.build(story)
         _build_combined_pdf(output_path, setup, controls, summary, tmp_report_path)
-    finally:
-        if os.path.exists(tmp_report_path):
-            os.remove(tmp_report_path)
 
 
 def _build_combined_pdf(output_path: str, setup: Dict,
