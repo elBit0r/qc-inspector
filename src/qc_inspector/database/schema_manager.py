@@ -25,7 +25,7 @@ from ..core.sampling_plans import (
 )
 
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 LEGACY_PRODUCTION_COLUMNS = {
     "setups": {
@@ -102,6 +102,11 @@ V3_COLUMNS = {
         "criticality", "label", "nominal", "tol_plus", "tol_minus",
         "description",
     },
+}
+
+V4_COLUMNS = {
+    **V3_COLUMNS,
+    "setups": V3_COLUMNS["setups"] | {"is_obsolete"},
 }
 
 SCHEMA_V1_STATEMENTS = (
@@ -331,7 +336,7 @@ def initialize_database(
                 f"fino alla versione {CURRENT_SCHEMA_VERSION}."
             )
         if version == CURRENT_SCHEMA_VERSION:
-            _validate_v3(conn)
+            _validate_v4(conn)
             return version
 
         tables = _user_tables(conn)
@@ -347,6 +352,8 @@ def initialize_database(
                 _backup_database(conn, path, "v1-v2")
         elif version == 2 and _matches_columns(conn, V2_COLUMNS):
             pass
+        elif version == 3 and _matches_columns(conn, V3_COLUMNS):
+            pass
         else:
             raise DatabaseSchemaError(
                 "Database senza versione con schema non riconosciuto. "
@@ -360,7 +367,10 @@ def initialize_database(
             if create_backup and not database_was_empty:
                 _backup_database(conn, path, "v2-v3")
             _migrate_v2_to_v3(conn)
-        _validate_v3(conn)
+        if int(conn.execute("PRAGMA user_version").fetchone()[0]) == 3:
+            if create_backup and not database_was_empty:
+                _backup_database(conn, path, "v3-v4")
+            _migrate_v3_to_v4(conn)
         return CURRENT_SCHEMA_VERSION
     finally:
         conn.close()
@@ -1062,16 +1072,27 @@ def _validate_v2(conn: sqlite3.Connection):
             )
 
 
-def _validate_v3(conn: sqlite3.Connection):
+def _migrate_v3_to_v4(conn: sqlite3.Connection):
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "ALTER TABLE setups ADD COLUMN is_obsolete INTEGER NOT NULL "
+            "DEFAULT 0 CHECK(is_obsolete IN (0, 1))"
+        )
+        conn.execute("PRAGMA user_version = 4")
+        _validate_v4(conn)
+
+
+def _validate_v4(conn: sqlite3.Connection):
     version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if version != CURRENT_SCHEMA_VERSION:
         raise DatabaseSchemaError(
             f"Versione schema non valida: {version}, attesa "
             f"{CURRENT_SCHEMA_VERSION}."
         )
-    if not _matches_columns(conn, V3_COLUMNS):
+    if not _matches_columns(conn, V4_COLUMNS):
         raise DatabaseSchemaError(
-            "Il database dichiara la versione 3 ma lo schema non coincide."
+            "Il database dichiara la versione 4 ma lo schema non coincide."
         )
     if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
         raise DatabaseSchemaError("Controllo integrità SQLite fallito.")
@@ -1095,7 +1116,7 @@ def _validate_v3(conn: sqlite3.Connection):
     }
     if not required_objects.issubset(actual_objects):
         raise DatabaseSchemaError(
-            "Indici o trigger obbligatori dello schema versione 3 mancanti."
+            "Indici o trigger obbligatori dello schema versione 4 mancanti."
         )
     invalid_lots = int(conn.execute(
         "SELECT COUNT(*) FROM lots "
@@ -1103,14 +1124,14 @@ def _validate_v3(conn: sqlite3.Connection):
     ).fetchone()[0])
     if invalid_lots:
         raise DatabaseSchemaError(
-            "Lo schema versione 3 contiene lotti aperti, annullati o senza "
+            "Lo schema versione 4 contiene lotti aperti, annullati o senza "
             "revisione del setup."
         )
     _validate_v2_rules_and_plans(conn)
 
 
 def _validate_v2_rules_and_plans(conn: sqlite3.Connection):
-    """Validazioni di contenuto condivise con lo schema v3."""
+    """Validazioni di contenuto condivise dalle versioni dello schema."""
     invalid_rules = int(conn.execute(
         """SELECT COUNT(*) FROM sampling_classes
            WHERE history_validity_days < 1

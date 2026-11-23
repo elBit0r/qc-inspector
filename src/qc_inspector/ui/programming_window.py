@@ -38,8 +38,17 @@ class TimestampTableWidgetItem(QTableWidgetItem):
         return super().__lt__(other)
 
 
+class SetupStatusTableWidgetItem(QTableWidgetItem):
+    def __lt__(self, other):
+        if isinstance(other, SetupStatusTableWidgetItem):
+            return self.data(Qt.UserRole) < other.data(Qt.UserRole)
+        return super().__lt__(other)
+
+
 class SetupOpenDialog(QDialog):
     """Selezione ricercabile di un setup salvato."""
+
+    STATUS_COLUMN = 4
 
     def __init__(self, setups: list[dict], parent=None,
                  current_setup_id: int | None = None):
@@ -135,9 +144,9 @@ class SetupOpenDialog(QDialog):
         search_layout.addWidget(self.txt_search)
         layout.addWidget(search_card)
 
-        self.table = QTableWidget(0, 4)
+        self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
-            ["Codice", "Descrizione", "Classe di Collaudo", "Ultima modifica"]
+            ["Codice", "Descrizione", "Classe di Collaudo", "Ultima modifica", "Stato"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -152,6 +161,7 @@ class SetupOpenDialog(QDialog):
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.STATUS_COLUMN, QHeaderView.ResizeToContents)
         self.table.itemSelectionChanged.connect(self._update_open_button)
         self.table.itemDoubleClicked.connect(self._open_selected)
         layout.addWidget(self.table)
@@ -178,6 +188,12 @@ class SetupOpenDialog(QDialog):
         )
         self.btn_new.setIcon(self.style().standardIcon(QStyle.SP_FileIcon))
         self.btn_new.clicked.connect(self._create_new)
+        self.btn_obsolete = self.buttons.addButton(
+            "Rendi obsoleto", QDialogButtonBox.ActionRole
+        )
+        self.btn_obsolete.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+        self.btn_obsolete.setEnabled(False)
+        self.btn_obsolete.clicked.connect(self._toggle_obsolete)
         self.btn_delete = self.buttons.addButton(
             "Elimina setup", QDialogButtonBox.ActionRole
         )
@@ -216,11 +232,23 @@ class SetupOpenDialog(QDialog):
             self.table.setItem(row, 3, TimestampTableWidgetItem(
                 self._format_timestamp(updated_at), updated_at
             ))
+            status = SetupStatusTableWidgetItem()
+            self._update_status_item(status, bool(setup.get("is_obsolete")))
+            self.table.setItem(row, self.STATUS_COLUMN, status)
 
         self.table.setSortingEnabled(True)
         self.lbl_result_count.setText(f"{len(setups)} setup trovati")
         if setups:
             self.table.selectRow(0)
+
+    def _update_status_item(self, item: QTableWidgetItem, obsolete: bool):
+        icon = QStyle.SP_MediaPause if obsolete else QStyle.SP_DialogApplyButton
+        label = "Setup obsoleto" if obsolete else "Setup attivo"
+        item.setData(Qt.UserRole, obsolete)
+        item.setIcon(self.style().standardIcon(icon))
+        item.setText("Obsoleto" if obsolete else "Attivo")
+        item.setToolTip(label)
+        item.setData(Qt.AccessibleTextRole, label)
 
     @staticmethod
     def _format_timestamp(value: str | None) -> str:
@@ -250,9 +278,45 @@ class SetupOpenDialog(QDialog):
         self._update_open_button()
 
     def _update_open_button(self):
-        has_selection = bool(self.table.selectedItems())
+        selected = self.table.selectedItems()
+        has_selection = bool(selected)
         self.btn_open.setEnabled(has_selection)
         self.btn_delete.setEnabled(has_selection)
+        self.btn_obsolete.setEnabled(has_selection)
+        status = (
+            self.table.item(selected[0].row(), self.STATUS_COLUMN)
+            if has_selection else None
+        )
+        obsolete = status is not None and status.data(Qt.UserRole)
+        self.btn_obsolete.setText("Riattiva setup" if obsolete else "Rendi obsoleto")
+        icon = QStyle.SP_MediaPlay if obsolete else QStyle.SP_MediaPause
+        self.btn_obsolete.setIcon(self.style().standardIcon(icon))
+
+    def _toggle_obsolete(self):
+        selected = self.table.selectedItems()
+        if not selected:
+            return
+        row = selected[0].row()
+        name = self.table.item(row, 0)
+        status = self.table.item(row, self.STATUS_COLUMN)
+        obsolete = not status.data(Qt.UserRole)
+        if obsolete and QMessageBox.question(
+            self, "Rendi obsoleto",
+            f"Rendere obsoleto il setup «{name.text()}»?\n\n"
+            "Il setup sarà escluso dai nuovi controlli.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        try:
+            db.set_setup_obsolete(name.data(Qt.UserRole), obsolete)
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "Errore aggiornamento setup", str(exc),
+            )
+            return
+        self._update_status_item(status, obsolete)
+        self._update_open_button()
 
     def _delete_selected(self):
         selected = self.table.selectedItems()

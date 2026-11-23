@@ -167,6 +167,45 @@ class SetupRevisionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "nome"):
             self._save_setup("setup a")
 
+    def test_obsolete_setup_preserves_history_and_blocks_inspections(self):
+        first_id, _ = self._save_setup("abc1234_rev1")
+        second_id, _ = self._save_setup("abc1234_rev2")
+        revision_id = db_manager.get_setup(first_id)["setup_revision_id"]
+        control_id = db_manager.get_revision_controls(revision_id)[0]["id"]
+        requirements = {key: {"n": 1, "ac": 0, "re": 1} for key in ("C", "I", "N")}
+        measurements = [{
+            "control_id": control_id,
+            "sample_num": 1,
+            "value_num": 10.0,
+            "value_bool": None,
+            "pass_fail": True,
+            "accepted_in_derogation": False,
+        }]
+
+        def save(lot_code):
+            return db_manager.save_completed_inspection(
+                first_id, revision_id, lot_code, 10, 1, "NORMALE",
+                requirements, "Operatore", None, "Fornitore", None, measurements,
+            )
+
+        lot_id = save("STORICO")
+        db_manager.set_setup_obsolete(first_id, True)
+        self.assertTrue(db_manager.get_setup(first_id)["is_obsolete"])
+        self.assertEqual(db_manager.get_setup(first_id)["setup_revision_id"], revision_id)
+        self.assertEqual({s["id"] for s in db_manager.get_all_setups()}, {first_id, second_id})
+        active_setups = db_manager.get_all_setups(include_obsolete=False)
+        self.assertEqual([s["id"] for s in active_setups], [second_id])
+        with self.assertRaisesRegex(ValueError, "obsoleto"):
+            save("BLOCCATO")
+
+        history = db_manager.get_lot_history_for_setup(first_id)
+        self.assertEqual([lot["id"] for lot in history], [lot_id])
+        self.assertEqual(db_manager.get_lot_report_data(lot_id)["setup"]["id"], revision_id)
+
+        db_manager.set_setup_obsolete(first_id, False)
+        new_lot_id = save("RIATTIVATO")
+        self.assertEqual(db_manager.get_lot(new_lot_id)["final_status"], "PASS")
+
     def test_changed_setup_creates_immutable_revision(self):
         setup_id, controls = self._save_setup(nominal=10.0)
         first_setup = db_manager.get_setup(setup_id)
@@ -326,13 +365,14 @@ class MigrationTests(unittest.TestCase):
                 "SELECT lot_code FROM lots ORDER BY lot_code"
             ).fetchall()
             setup_names = connection.execute(
-                "SELECT name FROM setups ORDER BY id"
+                "SELECT name, is_obsolete FROM setups ORDER BY id"
             ).fetchall()
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             connection.close()
 
-            self.assertEqual(version, 3)
+            self.assertEqual(version, 4)
             self.assertEqual(rows, [("SAVED",)])
+            self.assertTrue(all(row[1] == 0 for row in setup_names))
             self.assertEqual(len({row[0].casefold() for row in setup_names}), 2)
             self.assertTrue(any("duplicato" in row[0] for row in setup_names))
 

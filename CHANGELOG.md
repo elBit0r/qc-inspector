@@ -1,7 +1,10 @@
 # Changelog
 
-## 1.3.6 — In preparazione
+## 1.3.7 — In preparazione
 
+- I setup obsoleti restano consultabili nello storico e sono esclusi dai
+  controlli. Possono essere riattivati da Gestione setup.
+- La migrazione SQLite alla versione 4 mantiene attivi i setup esistenti.
 - I nuovi database includono la piastra PF-001 con cinque controlli, un
   operatore e un fornitore dimostrativi.
 - Il pacchetto portable inizializza il database al primo avvio.

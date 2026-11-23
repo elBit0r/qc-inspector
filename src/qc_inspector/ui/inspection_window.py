@@ -686,13 +686,13 @@ class InspectionStartDialog(QDialog):
         self.cmb_setup = QComboBox()
         self.cmb_setup.setEditable(True)
         self.cmb_setup.setInsertPolicy(QComboBox.NoInsert)
-        setups = db.get_all_setups()
+        setups = db.get_all_setups(include_obsolete=False)
         self._setups_by_id = {setup["id"]: setup for setup in setups}
         for setup in setups:
             self.cmb_setup.addItem(setup["name"], setup["id"])
         self.cmb_setup.setCurrentIndex(-1)
         self.cmb_setup.lineEdit().setPlaceholderText(
-            "Digita per cercare un setup…"
+            "Digita per cercare un setup…" if setups else "Nessun setup attivo"
         )
         setup_completer = QCompleter(self.cmb_setup.model(), self.cmb_setup)
         setup_completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -1286,6 +1286,13 @@ class InspectionStartDialog(QDialog):
         if setup_id is None:
             QMessageBox.warning(self, "Dati mancanti", "Seleziona il setup.")
             return
+        current_setup = db.get_setup(setup_id)
+        if not current_setup or current_setup["is_obsolete"]:
+            QMessageBox.warning(
+                self, "Setup non disponibile",
+                "Il setup è obsoleto o non è più disponibile per i controlli."
+            )
+            return
         setup = self._setups_by_id.get(setup_id) or {}
         if not db.get_revision_controls(setup.get("setup_revision_id")):
             QMessageBox.warning(
@@ -1818,6 +1825,13 @@ class InspectionWindow(QMainWindow):
     def _on_start_inspection(self):
         if not self._setup_id or not self._setup_revision_id:
             QMessageBox.warning(self, "Controllo", "Carica prima un setup.")
+            return
+        setup = db.get_setup(self._setup_id)
+        if not setup or setup["is_obsolete"]:
+            QMessageBox.warning(
+                self, "Setup non disponibile",
+                "Il setup è obsoleto o non è più disponibile per i controlli."
+            )
             return
         lot_code = self._lot_code
         if not lot_code:

@@ -579,7 +579,21 @@ def delete_setup(setup_id: int):
         conn.close()
 
 
-def get_all_setups() -> List[Dict]:
+def set_setup_obsolete(setup_id: int, obsolete: bool) -> None:
+    conn = get_connection()
+    try:
+        with conn:
+            result = conn.execute(
+                "UPDATE setups SET is_obsolete=? WHERE id=?",
+                (int(obsolete), setup_id),
+            )
+            if not result.rowcount:
+                raise ValueError("Il setup non è più disponibile.")
+    finally:
+        conn.close()
+
+
+def get_all_setups(*, include_obsolete: bool = True) -> List[Dict]:
     conn = get_connection()
     rows = conn.execute(
         """SELECT s.*, sc.code AS sampling_class_code,
@@ -599,7 +613,9 @@ def get_all_setups() -> List[Dict]:
                WHERE current_sr.setup_id=s.id
                ORDER BY current_sr.version_number DESC LIMIT 1
            )
-           ORDER BY s.updated_at DESC"""
+           WHERE (? OR s.is_obsolete=0)
+           ORDER BY s.updated_at DESC""",
+        (include_obsolete,),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -687,12 +703,16 @@ def save_completed_inspection(
     now = datetime.now().isoformat()
     conn = get_connection()
     try:
+        conn.execute("BEGIN IMMEDIATE")
         revision = conn.execute(
-            "SELECT * FROM setup_revisions WHERE id=? AND setup_id=?",
+            "SELECT s.is_obsolete FROM setup_revisions sr "
+            "JOIN setups s ON s.id=sr.setup_id WHERE sr.id=? AND s.id=?",
             (setup_revision_id, setup_id),
         ).fetchone()
         if revision is None:
             raise ValueError("La revisione del setup non è disponibile.")
+        if revision["is_obsolete"]:
+            raise ValueError("Il setup è obsoleto e non può essere usato per i controlli.")
         controls = [dict(row) for row in conn.execute(
             "SELECT * FROM revision_controls WHERE setup_revision_id=? "
             "ORDER BY balloon_num, id",

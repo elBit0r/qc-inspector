@@ -18,13 +18,17 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
+command -v readelf >/dev/null || { echo "Installare binutils (readelf)." >&2; exit 1; }
+command -v dpkg-deb >/dev/null || { echo "Installare dpkg (dpkg-deb)." >&2; exit 1; }
+
 "$ROOT_DIR/build.sh"
 
 # Ricava il requisito reale degli ELF incorporati, non quello dell'host.
-command -v readelf >/dev/null || { echo "Installare binutils (readelf)." >&2; exit 1; }
+echo "Calcolo la versione minima di glibc..."
 GLIBC_MIN="$(
   while IFS= read -r -d '' file; do
-    readelf --version-info "$file" 2>/dev/null || true
+    # Il parser cerca "Name:", che readelf traduce nella lingua della sessione.
+    LC_ALL=C readelf --version-info "$file" 2>/dev/null || true
   done < <(find "$ROOT_DIR/dist/$APP_NAME" -type f -print0) |
     sed -n 's/.*Name: GLIBC_\([0-9][0-9.]*\).*/\1/p' | sort -Vu | tail -n 1
 )"
@@ -32,6 +36,7 @@ if [[ -z "$GLIBC_MIN" ]]; then
   echo "Impossibile determinare la versione minima di glibc." >&2
   exit 1
 fi
+echo "Requisito glibc del pacchetto: $GLIBC_MIN."
 
 echo "Preparo struttura .deb..."
 rm -rf "$DEB_ROOT"
