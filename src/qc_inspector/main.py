@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QPushButton, QScrollArea, QToolTip, QSizePolicy, QStyle,
     QDialog, QTextBrowser
 )
-from PyQt5.QtCore import Qt, QSize, QEvent, QRectF, QUrl
+from PyQt5.QtCore import Qt, QSize, QEvent, QRectF, QProcess, QProcessEnvironment
 from PyQt5.QtGui import (
     QFont, QColor, QPalette, QIcon, QBrush, QPainter, QPen
 )
@@ -64,8 +64,28 @@ def _mode_icon_path(filename: str) -> str:
 
 
 def _manual_path() -> str:
-    """Percorso del manuale incluso nei sorgenti e nelle build."""
-    return os.path.join(_resource_root(), "ISTRUZIONI_USO.md")
+    """Percorso del PDF nel bundle installato o nella build dai sorgenti."""
+    filename = "Manuale_operativo_QC_Inspector.pdf"
+    if getattr(sys, "frozen", False):
+        return os.path.join(os.path.dirname(sys.executable), filename)
+    project_root = os.path.abspath(os.path.join(_resource_root(), "..", ".."))
+    return os.path.join(project_root, "output", "pdf", filename)
+
+
+def _open_pdf(path: str) -> bool:
+    process = QProcess()
+    process.setProgram("xdg-open")
+    process.setArguments([path])
+    if getattr(sys, "frozen", False):
+        # Il lettore di sistema deve usare le sue librerie, non quelle del bundle.
+        environment = QProcessEnvironment.systemEnvironment()
+        if environment.contains("LD_LIBRARY_PATH_ORIG"):
+            environment.insert("LD_LIBRARY_PATH", environment.value("LD_LIBRARY_PATH_ORIG"))
+        else:
+            environment.remove("LD_LIBRARY_PATH")
+        process.setProcessEnvironment(environment)
+    started, _ = process.startDetached()
+    return started
 
 
 def _legal_document_path(filename: str) -> str:
@@ -395,7 +415,7 @@ class LauncherWindow(QWidget):
         manual_button.setIcon(
             self.style().standardIcon(QStyle.SP_DialogHelpButton)
         )
-        manual_button.setToolTip("Apri il manuale d’uso di QC Inspector")
+        manual_button.setToolTip("Apri il manuale PDF di QC Inspector")
         manual_button.clicked.connect(self._open_user_manual)
         footer.addWidget(manual_button)
         license_button = QPushButton("Licenza")
@@ -443,46 +463,13 @@ class LauncherWindow(QWidget):
             )
             return
 
-        try:
-            with open(manual_path, "r", encoding="utf-8") as manual_file:
-                manual_text = manual_file.read()
-        except OSError as exc:
+        if not _open_pdf(manual_path):
             QMessageBox.warning(
                 self,
-                "Manuale non disponibile",
-                "Non è stato possibile leggere il manuale d’uso:\n"
-                f"{exc}",
+                "Impossibile aprire il manuale",
+                "Apri questo file con un lettore PDF:\n"
+                f"{manual_path}",
             )
-            return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Manuale d’uso — QC Inspector")
-        dialog.resize(1000, 760)
-        dialog.setMinimumSize(700, 500)
-
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        viewer = QTextBrowser(dialog)
-        viewer.setOpenExternalLinks(True)
-        viewer.document().setBaseUrl(
-            QUrl.fromLocalFile(os.path.dirname(manual_path) + os.sep)
-        )
-        viewer.setMarkdown(manual_text)
-        layout.addWidget(viewer)
-
-        close_button = QPushButton("Chiudi", dialog)
-        close_button.setIcon(
-            self.style().standardIcon(QStyle.SP_DialogCloseButton)
-        )
-        close_button.clicked.connect(dialog.accept)
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-        button_row.addWidget(close_button)
-        layout.addLayout(button_row)
-
-        dialog.exec_()
 
     def _build_recent_table(self) -> QTableWidget:
         columns = [
@@ -692,9 +679,17 @@ class LauncherWindow(QWidget):
         self._history_win.raise_()
         self._history_win.activateWindow()
 
+    def _restore_available(self):
+        return not any(
+            window is not None and window.isVisible()
+            for window in (self._prog_win, self._insp_win, self._history_win)
+        )
+
     def _open_master_data(self):
         if self._master_data_win is None or not self._master_data_win.isVisible():
-            self._master_data_win = MasterDataWindow()
+            self._master_data_win = MasterDataWindow(restore_available=self._restore_available)
+            self._master_data_win.backup_tab.restored.connect(self._refresh_recent_table)
+            self._master_data_win.backup_tab.restored.connect(self._refresh_supplier_chart)
         self._master_data_win.showMaximized()
         self._master_data_win.raise_()
         self._master_data_win.activateWindow()

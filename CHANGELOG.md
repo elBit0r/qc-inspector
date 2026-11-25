@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.8 — 2026-11-25
+
+- Il pulsante **Manuale d’uso** apre il PDF operativo nel lettore di sistema.
+- La build rigenera il manuale con la versione dell’app e lo include nei pacchetti.
+
 ## 1.3.7 — In preparazione
 
 - I setup obsoleti restano consultabili nello storico e sono esclusi dai

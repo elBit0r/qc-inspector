@@ -8,7 +8,6 @@ a = Analysis(
     datas=[
         ('src/qc_inspector/assets', 'assets'),
         ('src/qc_inspector/main-icon.png', '.'),
-        ('src/qc_inspector/ISTRUZIONI_USO.md', '.'),
         ('LICENSE', '.'),
         ('NOTICE.md', '.'),
         ('THIRD_PARTY_NOTICES.md', '.'),

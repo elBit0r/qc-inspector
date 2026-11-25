@@ -38,5 +38,4 @@ qc_inspector = [
     "assets/icons/*.svg",
     "assets/icons/*.png",
     "main-icon.png",
-    "ISTRUZIONI_USO.md",
 ]

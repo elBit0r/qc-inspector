@@ -17,7 +17,7 @@ controlli Sì/No. Il software verifica automaticamente la conformità rispetto
 ai criteri impostati e registra i risultati per lotto. Al termine può generare
 un report PDF contenente le misure e il disegno pallinato.
 
-**[Scarica il pacchetto `.deb` dalle release GitHub](https://github.com/elBit0r/qc-inspector/releases)**
+**[Scarica QC Inspector dalle release GitHub](https://github.com/elBit0r/qc-inspector/releases)**
 
 ## Funzioni principali
 
@@ -57,7 +57,7 @@ Per preparare un collaudo su un tuo disegno:
    rilevate o le risposte Sì/No. Il programma mostra gli esiti e l'avanzamento.
 4. **Salva i risultati.** Completate le misure, premi **Salva controllo / Genera
    report**. Il lotto viene registrato nello storico; report PDF e stampa
-   dell'etichetta sono facoltativi.
+   dell'etichetta dipendono dalle opzioni configurate.
 
 Le misure del collaudo restano in memoria fino al salvataggio finale.
 Chiudendo o interrompendo il controllo prima di salvarlo, vengono perse dopo
@@ -65,7 +65,8 @@ la conferma dell'operatore.
 
 ## Schermate di esempio
 
-Un esempio di controllo su una piastra forata.
+Un esempio di controllo su una piastra forata. Le schermate sono tratte da una
+versione precedente e alcune voci dell'interfaccia possono differire.
 
 ### Programmazione
 
@@ -122,7 +123,7 @@ sudo apt install libpulse-mainloop-glib0 libgstreamer1.0-0 libgstreamer-plugins-
 La stampa delle etichette richiede il client CUPS (`cups-client`) e una
 stampante configurata.
 
-### Da un pacchetto `.deb`
+### Da un pacchetto `.deb` su Debian o Ubuntu
 
 Apri la [pagina delle release](https://github.com/elBit0r/qc-inspector/releases)
 e scarica il file `.deb` dalla sezione **Assets** della versione desiderata.
@@ -137,6 +138,19 @@ sudo usermod -aG qc-inspector "$USER"
 Chiudi la sessione e rientra per attivare il gruppo, quindi avvia **QC Inspector**
 dal menu delle applicazioni oppure con `qc-inspector`.
 
+### Da un pacchetto `.rpm` su Fedora
+
+Scarica il file `.rpm` dalla sezione **Assets** della release e installalo
+dalla cartella in cui lo hai salvato:
+
+```bash
+sudo dnf install ./nome-pacchetto.rpm
+sudo usermod -aG qc-inspector "$USER"
+```
+
+Chiudi la sessione e rientra per attivare il gruppo, quindi avvia
+**QC Inspector** dal menu delle applicazioni oppure con `qc-inspector`.
+
 ### Dall'archivio portable
 
 Estrai l'archivio, entra nella cartella `qc-inspector`, copia
@@ -148,13 +162,19 @@ Su Ubuntu, installa le dipendenze audio indicate sopra per i suoni di esito.
 ## Configurazione e documentazione
 
 Da **Configurazione** puoi gestire operatori, fornitori, classi e piani di
-campionamento. Nella scheda **Opzioni** trovi stampante, copie delle etichette,
-separatore decimale, suoni di esito e testo a piè di pagina dei report.
-I percorsi del database e dei PDF sono consultabili nella stessa scheda.
+campionamento. Nella scheda **Opzioni** trovi il separatore decimale, i suoni di
+esito e i percorsi del database e dei PDF. La scheda **Etichetta** contiene
+stampante CUPS, copie, stampa automatica e un editor del formato con anteprima.
+Nella scheda **Report** puoi configurare logo, piè di pagina, cartella di
+destinazione e salvataggio automatico.
 
-Il **Manuale d'uso** è disponibile nel launcher e nel
-[file incluso nel progetto](src/qc_inspector/ISTRUZIONI_USO.md).
-Per conservare e ripristinare database, disegni e configurazione, consulta
+Il pulsante **Manuale d’uso** nella finestra principale apre il PDF nel lettore
+predefinito del sistema. Nei pacchetti `.deb` e `.rpm` il PDF si trova in
+`/opt/qc-inspector/Manuale_operativo_QC_Inspector.pdf`. Nella versione portable
+si trova accanto all’eseguibile. Se avvii dai sorgenti, il comando
+`.venv/bin/python tools/generate_manual.py` genera il PDF in `output/pdf/`.
+La scheda **Backup** esporta e ripristina database e disegni. Per includere
+anche la configurazione, segui la procedura manuale in
 [BACKUP.md](BACKUP.md).
 
 Per contribuire o segnalare problemi:

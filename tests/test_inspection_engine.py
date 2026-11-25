@@ -1,11 +1,59 @@
 import unittest
+from math import nextafter
+from unittest.mock import patch
 
 from qc_inspector.core.inspection_engine import (
     STATUS_DEROGATION,
     STATUS_FAIL,
     STATUS_PASS,
+    evaluate_dimensional,
     evaluate_sampling_lot,
+    get_control_limits,
 )
+
+
+class DimensionalEvaluationTests(unittest.TestCase):
+    def setUp(self):
+        separator = patch(
+            "qc_inspector.core.app_config.get_decimal_separator", return_value=","
+        )
+        separator.start()
+        self.addCleanup(separator.stop)
+
+    def test_inclusive_asymmetric_limits_and_adjacent_values(self):
+        for value, expected in (
+            (0.5, (True, "PASS  (-0,200)")),
+            (0.8, (True, "PASS  (+0,100)")),
+            (nextafter(0.5, 0), (False, "FAIL  (-0,200  — sotto il minimo 0,500)")),
+            (nextafter(0.8, 1), (False, "FAIL  (+0,100  — sopra il massimo 0,800)")),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(evaluate_dimensional(value, 0.7, 0.1, 0.2), expected)
+
+    def test_negative_nominal_measurements_and_tolerances(self):
+        for value, expected in (
+            (-0.8, True),
+            (-0.5, True),
+            (-0.801, False),
+            (nextafter(-0.5, 0), False),
+        ):
+            with self.subTest(value=value):
+                passed, _ = evaluate_dimensional(value, -0.7, -0.2, -0.1)
+                self.assertEqual(passed, expected)
+
+    def test_zero_tolerance_requires_exact_match(self):
+        self.assertTrue(evaluate_dimensional(0.3, 0.3, 0, 0)[0])
+        self.assertFalse(evaluate_dimensional(nextafter(0.3, 1), 0.3, 0, 0)[0])
+
+    def test_small_nominal_shift_is_preserved_in_limits(self):
+        self.assertFalse(evaluate_dimensional(-1.0, 5e-324, 1.0, 1.0)[0])
+
+    def test_display_limits_are_returned_as_floats(self):
+        limits = get_control_limits(dict(
+            control_type="dimensional", nominal=0.7, tol_plus=0.1, tol_minus=0.2
+        ))
+        self.assertEqual(limits, (0.5, 0.8))
+        self.assertTrue(all(isinstance(limit, float) for limit in limits))
 
 
 class SamplingLotEvaluationTests(unittest.TestCase):

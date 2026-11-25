@@ -9,22 +9,25 @@ from reportlab.lib.units import mm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph,
-    Spacer, HRFlowable, PageBreak
+    Spacer, HRFlowable, PageBreak, Image
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from datetime import datetime
 from typing import List, Dict, Optional
 from html import escape
+from io import BytesIO
+from pathlib import Path
 import os
 import tempfile
 import fitz  # PyMuPDF
 
 from ..core.inspection_engine import (
     format_tolerance, get_control_status, get_control_sample_count,
-    get_measurement_status, get_control_limits,
+    get_measurement_status, get_control_limits, get_boolean_labels,
+    format_boolean_answer,
     STATUS_PASS, STATUS_FAIL, STATUS_DEROGATION,
 )
-from ..core.app_config import format_decimal, load_or_create_config
+from ..core.app_config import format_decimal, get_report_dir, load_or_create_config, load_report_logo
 
 
 # ─── Colori ──────────────────────────────────────────────────────────────────
@@ -42,10 +45,22 @@ C_RED       = colors.HexColor("#721c24")
 C_AMBER     = colors.HexColor("#7a4b00")
 
 
+def _build_report_logo(cfg: Dict) -> list:
+    logo_file = cfg.get("report_logo_file")
+    if not logo_file:
+        return []
+    logo = Image(load_report_logo(logo_file), width=40*mm, height=18*mm,
+                 kind="proportional", hAlign="LEFT")
+    return [logo, Spacer(1, 3*mm)]
+
+
 def generate_global_supplier_report(output_path: str, statistics: Dict):
     """Genera il report globale di valutazione fornitori per intervallo date."""
+    cfg = load_or_create_config()
+    footer_text = cfg.get("report_footer_text", "").strip()
+    report_buffer = BytesIO() if footer_text else None
     doc = SimpleDocTemplate(
-        output_path,
+        report_buffer if report_buffer is not None else output_path,
         pagesize=landscape(A4),
         leftMargin=8*mm, rightMargin=8*mm,
         topMargin=8*mm, bottomMargin=8*mm,
@@ -63,7 +78,7 @@ def generate_global_supplier_report(output_path: str, statistics: Dict):
     small_style = ParagraphStyle(
         "GlobalSmall", parent=styles["BodyText"], fontSize=7, leading=9,
     )
-    story = [
+    story = _build_report_logo(cfg) + [
         Paragraph("REPORT GLOBALE — VALUTAZIONE FORNITORI", title_style),
         Paragraph(
             f"Periodo: {escape(statistics['start_date'])} — "
@@ -207,10 +222,65 @@ def generate_global_supplier_report(output_path: str, statistics: Dict):
         story.append(detail_table)
 
     doc.build(story)
+    if report_buffer is not None:
+        with fitz.open(stream=report_buffer.getvalue(), filetype="pdf") as report_doc:
+            _add_page_footers(report_doc, footer_text, number_pages=False)
+            report_doc.save(output_path)
 
 
 def _format_percentage(value: float) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".") + "%"
+
+
+def default_lot_report_name(setup: Dict, lot: Dict) -> str:
+    parts = []
+    for value in (setup.get("name") or "setup", lot.get("lot_code") or "lotto"):
+        cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(value))
+        parts.append(cleaned.strip("_") or "valore")
+    return "_".join(parts) + ".pdf"
+
+
+def save_automatic_lot_report(report_data: Dict, cfg: Dict) -> str:
+    report_dir = get_report_dir(cfg)
+    if not report_dir:
+        raise ValueError("Scegli una cartella per il salvataggio automatico dei report.")
+    root = Path(report_dir).resolve()
+    if not root.is_dir():
+        raise ValueError(f"Cartella report non disponibile: {root}")
+
+    setup, summary = report_data["setup"], report_data["summary"]
+    lot = summary["lot"]
+    # I lotti storici possono contenere nomi precedenti alla validazione.
+    supplier = "".join(
+        ch if ch.isalnum() or ch == " " else "_"
+        for ch in (lot.get("supplier") or "").strip()
+    ).strip(" _") or "Fornitore non specificato"
+    date = datetime.fromisoformat(lot["created_at"])
+    folder = (root / supplier / f"{date.year:04d}" / f"{date.month:02d}").resolve()
+    if not folder.is_relative_to(root):
+        raise ValueError(f"Cartella del lotto esterna alla cartella report: {folder}")
+    folder.mkdir(parents=True, exist_ok=True)
+
+    filename = default_lot_report_name(setup, lot)
+    with tempfile.TemporaryDirectory(prefix=".qc-report-", dir=folder) as directory:
+        temporary_report = Path(directory) / filename
+        generate_report(str(temporary_report), setup, report_data["controls"], summary)
+        destination = folder / filename
+        counter = 1
+        while True:
+            try:
+                with destination.open("xb"):
+                    pass
+                break
+            except FileExistsError:
+                counter += 1
+                destination = folder / f"{Path(filename).stem}_{counter}.pdf"
+        try:
+            temporary_report.replace(destination)
+        except OSError:
+            destination.unlink(missing_ok=True)
+            raise
+    return str(destination)
 
 
 def generate_report(output_path: str, setup: Dict,
@@ -225,7 +295,8 @@ def generate_report(output_path: str, setup: Dict,
         summary: dizionario da db.get_lot_summary()
     """
     styles = getSampleStyleSheet()
-    story = []
+    cfg = load_or_create_config()
+    story = _build_report_logo(cfg)
 
     # ─── Intestazione ────────────────────────────────────────────────────────
     story += _build_header(setup, summary, styles)
@@ -259,19 +330,21 @@ def generate_report(output_path: str, setup: Dict,
             title=f"Report collaudo — Lotto {summary['lot']['lot_code']}"
         )
         doc.build(story)
-        _build_combined_pdf(output_path, setup, controls, summary, tmp_report_path)
+        _build_combined_pdf(
+            output_path, setup, controls, summary, tmp_report_path,
+            cfg.get("report_footer_text", "").strip(),
+        )
 
 
 def _build_combined_pdf(output_path: str, setup: Dict,
                         controls: List[Dict], summary: Dict,
-                        report_pdf_path: str):
+                        report_pdf_path: str, footer_text: str):
     setup_pdf_path = setup.get("pdf_path")
     if not setup_pdf_path or not os.path.exists(setup_pdf_path):
         # Fallback: se il PDF setup non è disponibile salva solo il report tabellare.
-        report_doc = fitz.open(report_pdf_path)
-        _add_page_numbers(report_doc)
-        report_doc.save(output_path)
-        report_doc.close()
+        with fitz.open(report_pdf_path) as report_doc:
+            _add_page_footers(report_doc, footer_text)
+            report_doc.save(output_path)
         return
 
     setup_doc = fitz.open(setup_pdf_path)
@@ -284,7 +357,7 @@ def _build_combined_pdf(output_path: str, setup: Dict,
         # Ordine richiesto: prima report tabellare, poi setup con balloon
         final_doc.insert_pdf(report_doc)
         final_doc.insert_pdf(setup_doc)
-        _add_page_numbers(final_doc)
+        _add_page_footers(final_doc, footer_text)
         final_doc.save(output_path)
     finally:
         report_doc.close()
@@ -292,21 +365,22 @@ def _build_combined_pdf(output_path: str, setup: Dict,
         final_doc.close()
 
 
-def _add_page_numbers(document: fitz.Document):
+def _add_page_footers(document: fitz.Document, footer_text: str, *, number_pages=True):
     """Aggiunge testo configurabile a sinistra e numerazione a destra."""
     total = len(document)
-    footer_text = load_or_create_config().get("report_footer_text", "").strip()
     for number, page in enumerate(document, start=1):
-        text = f"Pagina {number} di {total}"
         fontsize = 8
-        width = fitz.get_text_length(text, fontname="helv", fontsize=fontsize)
-        # Posizione nella vista ruotata, convertita nelle coordinate native.
-        point = fitz.Point(page.rect.width - 5*mm - width,
-                           page.rect.height - 4*mm) * page.derotation_matrix
-        page.insert_text(
-            point, text, fontsize=fontsize, fontname="helv",
-            color=(0.35, 0.35, 0.35), rotate=page.rotation,
-        )
+        width = 0
+        if number_pages:
+            text = f"Pagina {number} di {total}"
+            width = fitz.get_text_length(text, fontname="helv", fontsize=fontsize)
+            # Posizione nella vista ruotata, convertita nelle coordinate native.
+            point = fitz.Point(page.rect.width - 5*mm - width,
+                               page.rect.height - 4*mm) * page.derotation_matrix
+            page.insert_text(
+                point, text, fontsize=fontsize, fontname="helv",
+                color=(0.35, 0.35, 0.35), rotate=page.rotation,
+            )
         if footer_text:
             # Riserva spazio alla numerazione anche con nomi azienda lunghi.
             available = page.rect.width - 15*mm - width
@@ -579,7 +653,7 @@ def _build_main_table(controls: List[Dict], summary: Dict) -> list:
                     if ctrl["control_type"] == "dimensional":
                         val = format_decimal(m["value_num"]) if m["value_num"] is not None else "—"
                     else:
-                        val = "Sì" if m["value_bool"] else "No"
+                        val = format_boolean_answer(ctrl, m["value_bool"])
                     if get_measurement_status(m) == STATUS_DEROGATION:
                         val += " *"
                     sample_cells.append(val)
@@ -594,7 +668,8 @@ def _build_main_table(controls: List[Dict], summary: Dict) -> list:
 
             lower, upper = get_control_limits(ctrl)
             nom_str = (format_tolerance(ctrl["nominal"], ctrl["tol_plus"], ctrl["tol_minus"])
-                       if ctrl["control_type"] == "dimensional" else "Sì/No")
+                       if ctrl["control_type"] == "dimensional"
+                       else "/".join(get_boolean_labels(ctrl)))
             min_str = format_decimal(lower) if lower is not None else "—"
             max_str = format_decimal(upper) if upper is not None else "—"
 
@@ -765,7 +840,7 @@ def _build_derogations(controls: List[Dict], summary: Dict, styles) -> list:
         if ctrl.get("control_type") == "dimensional":
             value = format_decimal(measurement.get("value_num"))
         else:
-            value = "Sì" if measurement.get("value_bool") else "No"
+            value = format_boolean_answer(ctrl, measurement.get("value_bool"))
         recorded_at = str(measurement.get("derogation_at") or "—")[:19]
         rows.append([
             str(ctrl.get("balloon_num", "—")),

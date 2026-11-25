@@ -1,6 +1,7 @@
 # Build and distribution
 /build/
 /dist/
+/output/pdf/Manuale_operativo_QC_Inspector.pdf
 /.public-release/
 *.egg-info/
 

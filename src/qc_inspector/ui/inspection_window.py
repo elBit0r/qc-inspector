@@ -3,7 +3,10 @@ inspection_window.py
 Finestra di controllo: registra misure per campione o per controllo, mostra PASS/FAIL in tempo reale.
 """
 
+import sqlite3
 from datetime import datetime
+from tempfile import TemporaryDirectory
+from os.path import join
 
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
@@ -25,13 +28,18 @@ from ..ui.control_statistics_widget import ControlStatisticsWidget
 from ..database import db_manager as db
 from ..core.inspection_engine import (
     evaluate_control, get_measurement_status,
-    get_control_status, format_tolerance,
+    get_control_status, format_tolerance, get_boolean_labels, format_boolean_answer,
     evaluate_sampling_lot,
     STATUS_EMPTY, STATUS_PASS, STATUS_DEROGATION, STATUS_INCOMPLETE,
 )
-from ..core.sampling_plans import recommend_sampling_profile
-from ..core.report_generator import generate_report
-from ..core.label_printer import generate_label_pdf, print_label, load_or_create_config
+from ..core.sampling_plans import (
+    recommend_sampling_profile, resolve_sampling_requirements,
+)
+from ..core.app_config import get_report_dir, is_report_auto_save_enabled, load_or_create_config
+from ..core.report_generator import (
+    default_lot_report_name, generate_report, save_automatic_lot_report,
+)
+from ..core.label_printer import generate_label_pdf, print_label
 from ..core.audio_feedback import MeasurementSoundPlayer
 
 
@@ -234,14 +242,15 @@ class SampleControlRow(QWidget):
                 lbl_nom.setFixedWidth(180)
                 layout.addWidget(lbl_nom)
 
-            self.btn_si = QPushButton("Sì")
+            positive, negative = get_boolean_labels(self._control)
+            self.btn_si = QPushButton(positive)
             self.btn_si.setFixedWidth(65 if self._compact else 50)
             self.btn_si.setMinimumHeight(30)
             self.btn_si.setCheckable(True)
             self.btn_si.clicked.connect(lambda: self._on_yesno(True))
             layout.addWidget(self.btn_si)
 
-            self.btn_no = QPushButton("No")
+            self.btn_no = QPushButton(negative)
             self.btn_no.setFixedWidth(65 if self._compact else 50)
             self.btn_no.setMinimumHeight(30)
             self.btn_no.setCheckable(True)
@@ -276,11 +285,10 @@ class SampleControlRow(QWidget):
             layout.addStretch()
 
     def _on_value_input_changed(self):
-        # Debounce per evitare scritture DB ad ogni singolo step.
+        # Attende una pausa prima di valutare la misura e aggiornare la bozza.
         self._pending_timer.start(300)
 
     def _on_value_editing_finished(self):
-        # Flush immediato quando l'utente conclude l'edit.
         if self._pending_timer.isActive():
             self._pending_timer.stop()
             self._on_value_changed()
@@ -366,7 +374,7 @@ class SampleControlRow(QWidget):
         if self._control["control_type"] == "dimensional":
             value = f"{self.input.value():.3f} mm"
         else:
-            value = "Sì" if self.btn_si.isChecked() else "No"
+            value = format_boolean_answer(self._control, self.btn_si.isChecked())
         return (
             self._sample_num,
             self._control["balloon_num"],
@@ -1228,23 +1236,12 @@ class InspectionStartDialog(QDialog):
             )
             return
 
-        prefix_by_criticality = {
-            "C": "critical", "I": "important", "N": "normal",
-        }
-        requirements = {}
-        for criticality, prefix in prefix_by_criticality.items():
-            planned_n = int(plan_row[f"{prefix}_n"])
-            sample_n = min(planned_n, lot_quantity)
-            acceptance = int(plan_row[f"{prefix}_ac"])
-            rejection = int(plan_row[f"{prefix}_re"])
-            if sample_n < rejection:
-                rejection = sample_n
-                acceptance = min(acceptance, rejection - 1)
-            requirements[criticality] = {
-                "n": sample_n,
-                "ac": acceptance,
-                "re": rejection,
-            }
+        try:
+            requirements = resolve_sampling_requirements(plan_row, lot_quantity)
+        except ValueError as exc:
+            self.spn_samples.setValue(1)
+            self._set_sampling_result(f"{profile} · {exc}", False)
+            return
 
         self._sampling_requirements = requirements
         samples = max(
@@ -1313,12 +1310,6 @@ class InspectionStartDialog(QDialog):
             return
         if not self.txt_lot_code.text().strip():
             QMessageBox.warning(self, "Dati mancanti", "Inserisci il numero del lotto.")
-            return
-        if self.spn_samples.value() > self.spn_lot_quantity.value():
-            QMessageBox.warning(
-                self, "Quantità non valida",
-                "La quantità da controllare non può superare la quantità del lotto."
-            )
             return
         if self.cmb_operator.currentData() is None:
             QMessageBox.warning(self, "Dati mancanti", "Seleziona l'operatore.")
@@ -1461,7 +1452,6 @@ class InspectionWindow(QMainWindow):
             }
             QTabBar::tab:selected {
                 background:white; color:#174a78; border-bottom-color:white;
-                font-weight:bold;
             }
             QTabBar::tab:hover { background:#edf3f7; }
             QProgressBar {
@@ -1614,29 +1604,29 @@ class InspectionWindow(QMainWindow):
 
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
-        mode_label = QLabel("CONTROLLO QUALITÀ")
-        mode_label.setStyleSheet(
-            "color:#2f75b5; font-size:9pt; font-weight:bold;"
-        )
-        top_row.addWidget(mode_label)
-        setup_title = QLabel("Setup")
-        setup_title.setStyleSheet("color:#697887;")
-        top_row.addWidget(setup_title)
-        self.lbl_setup_name = QLabel("—")
-        self.lbl_setup_name.setFont(QFont("Arial", 12, QFont.Bold))
-        self.lbl_setup_name.setStyleSheet("color:#1f3346;")
-        top_row.addWidget(self.lbl_setup_name)
 
-        separator = QLabel("•")
-        separator.setStyleSheet("color:#9aa7b3;")
-        top_row.addWidget(separator)
-        lot_title = QLabel("Lotto")
-        lot_title.setStyleSheet("color:#697887;")
-        top_row.addWidget(lot_title)
-        self.lbl_lot_code = QLabel("—")
-        self.lbl_lot_code.setFont(QFont("Arial", 11, QFont.Bold))
-        self.lbl_lot_code.setStyleSheet("color:#1f3346;")
-        top_row.addWidget(self.lbl_lot_code)
+        def add_info_chip(title: str, maximum_width: int = 0) -> QLabel:
+            chip = QFrame()
+            chip.setObjectName("infoChip")
+            chip_layout = QHBoxLayout(chip)
+            chip_layout.setContentsMargins(8, 3, 8, 3)
+            chip_layout.setSpacing(6)
+            title_label = QLabel(title)
+            title_label.setObjectName("chipTitle")
+            value_label = QLabel("—")
+            value_label.setObjectName("chipValue")
+            if maximum_width:
+                value_label.setMaximumWidth(maximum_width)
+            chip_layout.addWidget(title_label)
+            chip_layout.addWidget(value_label)
+            top_row.addWidget(chip)
+            return value_label
+
+        self.lbl_supplier = add_info_chip("Fornitore", 220)
+        self.lbl_lot_quantity = add_info_chip("Quantità lotto")
+        self.lbl_samples = add_info_chip("Campionamento")
+        self.lbl_sampling_profile = add_info_chip("Piano")
+        self.lbl_operator = add_info_chip("Operatore", 190)
         top_row.addStretch()
 
         self.btn_fullscreen = QPushButton()
@@ -1690,33 +1680,29 @@ class InspectionWindow(QMainWindow):
         top_row.addWidget(btn_next_p)
         layout.addLayout(top_row)
 
-        details_row = QHBoxLayout()
-        details_row.setSpacing(7)
+        setup_row = QHBoxLayout()
+        setup_row.setSpacing(8)
+        setup_title = QLabel("Setup")
+        setup_title.setStyleSheet("color:#697887;")
+        setup_row.addWidget(setup_title)
+        self.lbl_setup_name = QLabel("—")
+        self.lbl_setup_name.setFont(QFont("Arial", 12, QFont.Bold))
+        self.lbl_setup_name.setStyleSheet("color:#1f3346;")
+        setup_row.addWidget(self.lbl_setup_name)
 
-        def add_info_chip(title: str, maximum_width: int = 0) -> QLabel:
-            chip = QFrame()
-            chip.setObjectName("infoChip")
-            chip_layout = QHBoxLayout(chip)
-            chip_layout.setContentsMargins(8, 3, 8, 3)
-            chip_layout.setSpacing(6)
-            title_label = QLabel(title)
-            title_label.setObjectName("chipTitle")
-            value_label = QLabel("—")
-            value_label.setObjectName("chipValue")
-            if maximum_width:
-                value_label.setMaximumWidth(maximum_width)
-            chip_layout.addWidget(title_label)
-            chip_layout.addWidget(value_label)
-            details_row.addWidget(chip)
-            return value_label
+        separator = QLabel("•")
+        separator.setStyleSheet("color:#9aa7b3;")
+        setup_row.addWidget(separator)
+        lot_title = QLabel("Lotto")
+        lot_title.setStyleSheet("color:#697887;")
+        setup_row.addWidget(lot_title)
+        self.lbl_lot_code = QLabel("—")
+        self.lbl_lot_code.setFont(QFont("Arial", 11, QFont.Bold))
+        self.lbl_lot_code.setStyleSheet("color:#1f3346;")
+        setup_row.addWidget(self.lbl_lot_code)
+        setup_row.addStretch()
 
-        self.lbl_supplier = add_info_chip("Fornitore", 220)
-        self.lbl_lot_quantity = add_info_chip("Quantità lotto")
-        self.lbl_samples = add_info_chip("Campionamento")
-        self.lbl_sampling_profile = add_info_chip("Piano")
-        self.lbl_operator = add_info_chip("Operatore", 190)
-        details_row.addStretch()
-        layout.addLayout(details_row)
+        layout.addLayout(setup_row)
 
         return bar
 
@@ -2213,93 +2199,64 @@ class InspectionWindow(QMainWindow):
         )
 
         setup = self._setup
-        setup_name = str(setup.get("name") or "setup")
-        lot_code = str(self._lot_code or "lotto")
+        cfg = load_or_create_config()
+        messages = ["Il controllo è stato salvato nello storico."]
+        if cfg["label_auto_print"].strip().upper() == "YES":
+            try:
+                summary = db.get_lot_summary(self._lot_id)
+                with TemporaryDirectory(prefix="qc_etichetta_") as directory:
+                    label_path = join(directory, "etichetta.pdf")
+                    ok_label, error = generate_label_pdf(label_path, setup, summary, cfg)
+                    if ok_label:
+                        ok_label, error = print_label(label_path, cfg)
+                if not ok_label:
+                    raise ValueError(error)
+                messages.append("Etichetta inviata alla stampante.")
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                QMessageBox.warning(
+                    self, "Etichetta non inviata",
+                    f"Il controllo è salvato nello storico.\n\n{exc}",
+                )
 
-        def _safe_part(text: str) -> str:
-            cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
-            return cleaned.strip("_") or "valore"
-
+        auto_save = is_report_auto_save_enabled(cfg)
         report_path = ""
-        report_question = QMessageBox.question(
+        generate_now = auto_save or QMessageBox.question(
             self, "Controllo salvato",
             "Il controllo è stato salvato nello storico.\n\n"
             "Vuoi generare ora il report PDF?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.Yes,
-        )
-        messages = ["Il controllo è stato salvato nello storico."]
-        if report_question == QMessageBox.Yes:
-            default_name = (
-                f"{_safe_part(setup_name)}_{_safe_part(lot_code)}.pdf"
-            )
+        ) == QMessageBox.Yes
+        if generate_now and not auto_save:
+            default_name = default_lot_report_name(setup, {"lot_code": self._lot_code})
             report_path, _ = QFileDialog.getSaveFileName(
-                self, "Salva report", default_name, "PDF (*.pdf)"
+                self, "Salva report", join(get_report_dir(cfg), default_name),
+                "PDF (*.pdf)",
             )
-            if report_path:
-                try:
-                    report_data = db.get_lot_report_data(self._lot_id)
-                    if not report_data:
-                        raise ValueError("Dati del controllo non disponibili")
+        if auto_save or report_path:
+            try:
+                report_data = db.get_lot_report_data(self._lot_id)
+                if not report_data:
+                    raise ValueError("Dati del controllo non disponibili")
+                if auto_save:
+                    report_path = save_automatic_lot_report(report_data, cfg)
+                else:
                     generate_report(
                         report_path, report_data["setup"],
                         report_data["controls"], report_data["summary"],
                     )
-                    messages.append(f"Report salvato:\n{report_path}")
-                except Exception as exc:
-                    QMessageBox.warning(
-                        self, "Report non generato",
-                        "Il controllo è già salvato, ma il report non è stato "
-                        f"generato. Potrai riprovare dallo storico.\n\n{exc}",
-                    )
-                    report_path = ""
-            else:
-                messages.append(
-                    "Report non generato: potrà essere creato dallo storico."
+                messages.append(f"Report salvato:\n{report_path}")
+            except Exception as exc:
+                QMessageBox.warning(
+                    self, "Report non generato",
+                    "Il controllo è già salvato, ma il report non è stato "
+                    f"generato. Potrai riprovare dallo storico.\n\n{exc}",
                 )
+                report_path = ""
         else:
             messages.append(
                 "Report non generato: potrà essere creato dallo storico."
             )
-
-        cfg = load_or_create_config()
-        label_enable = str(cfg.get("label_enable", "YES")).strip().upper()
-        labels_enabled = label_enable in {"YES", "Y", "TRUE", "1", "ON"}
-        if labels_enabled:
-            print_question = QMessageBox.question(
-                self, "Etichetta",
-                "Vuoi stampare ora l'etichetta del controllo salvato?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if print_question == QMessageBox.Yes:
-                if report_path:
-                    label_path = report_path.rsplit(".", 1)[0] + "_etichetta.pdf"
-                else:
-                    import tempfile
-                    temporary = tempfile.NamedTemporaryFile(
-                        prefix="qc_etichetta_", suffix=".pdf", delete=False
-                    )
-                    label_path = temporary.name
-                    temporary.close()
-                summary = db.get_lot_summary(self._lot_id)
-                ok_lbl, err_lbl = generate_label_pdf(label_path, setup, summary)
-                if not ok_lbl:
-                    QMessageBox.warning(
-                        self, "Etichetta",
-                        "Il controllo è salvato, ma l'etichetta non è stata "
-                        f"generata:\n{err_lbl}"
-                    )
-                else:
-                    ok_prn, err_prn = print_label(label_path)
-                    if not ok_prn:
-                        QMessageBox.warning(
-                            self, "Etichetta non stampata",
-                            "Il controllo è salvato e l'etichetta è stata "
-                            f"generata in:\n{label_path}\n\n{err_prn}",
-                        )
-                    else:
-                        messages.append("Etichetta stampata.")
 
         self._finish_completed_inspection("\n\n".join(messages))
 

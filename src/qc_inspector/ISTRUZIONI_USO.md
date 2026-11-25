@@ -22,7 +22,7 @@ avviso quando i dati disponibili sono insufficienti.
 
 ## Avvio
 
-Con pacchetto `.deb`:
+Con un pacchetto `.deb` o `.rpm`:
 
 ```bash
 qc-inspector
@@ -70,7 +70,7 @@ Usare questa modalità per creare o modificare un setup di controllo.
    - **Sì / No**: controllo di presenza o verifica senza valore numerico.
    - **Criticità**: `C — CRITICA`, `I — IMPORTANTE` oppure `N — NORMALE`.
    - Descrizione opzionale.
-7. Premere **Applica controllo** per trasferire il controllo nel modello temporaneo.
+7. Premere **Applica controllo** per aggiungere o aggiornare il controllo nella bozza del setup.
 8. Ripetere per tutte le pallinature.
 9. Premere **Salva setup** per registrare tutte le modifiche nel database.
 
@@ -80,10 +80,12 @@ nuova revisione identificata da un UUID. I controlli già conclusi continuano a
 usare quote, tolleranze, pallinature e PDF della revisione originale.
 
 All'apertura di Programmazione compare **Gestione setup**. È possibile cercare
-un setup digitando una parte del nome o del codice, aprirlo, crearne uno nuovo
-oppure eliminarlo. L'elenco mostra nome/codice, descrizione, classe e ultima
-modifica. Dopo la scelta, la finestra di Programmazione viene aperta
-massimizzata.
+un setup digitando una parte del nome o del codice, aprirlo o crearne uno nuovo.
+L'elenco mostra nome/codice, descrizione, classe, ultima modifica e stato.
+**Rendi obsoleto** esclude il setup dai nuovi controlli e ne conserva lo
+storico. **Riattiva setup** lo rende di nuovo selezionabile in **Controllo**.
+Si possono eliminare solo i setup privi di controlli salvati nello storico.
+La finestra di Programmazione si apre massimizzata.
 
 La Classe di Collaudo è obbligatoria e fa parte del setup: cambiarla abilita
 **Salva setup**, viene rilevato come modifica non salvata e richiede conferma
@@ -386,14 +388,30 @@ del fornitore anche dopo modifiche alle anagrafiche.
 
 ### Opzioni
 
-In **Configurazione → Opzioni**, impostare stampante CUPS, copie dell'etichetta,
-separatore decimale, feedback audio e testo a piè di pagina dei report. Premere
+In **Configurazione → Opzioni**, impostare separatore decimale e feedback audio. Premere
 **Salva opzioni** per applicare le modifiche. I campi **Database** e
 **Cartella PDF** mostrano i percorsi effettivi in sola lettura.
+Il pulsante **Sfoglia…** apre nel gestore file la cartella che contiene il
+database o la cartella PDF, a seconda del campo.
 
 Per ciascun esito PASS o FAIL si può scegliere un file audio con **Sfoglia…**,
 ascoltarlo con **Prova** e tornare al suono incluso con **Predefinito**.
 I file personalizzati devono rimanere accessibili nel percorso selezionato.
+
+### Report
+
+In **Configurazione → Report**, impostare logo, testo a piè di pagina e
+cartella di destinazione. Se si attiva **Salva automaticamente i report di
+collaudo**, la cartella è obbligatoria e i PDF vengono organizzati per
+fornitore, anno e mese del lotto. Premere **Salva opzioni report**.
+
+### Backup
+
+In **Configurazione → Backup**, scegliere la cartella e premere **Esegui backup**
+per esportare il database e i disegni in uno ZIP. Con **Ripristina backup…** si
+possono importare i dati nell'archivio corrente o sostituire i dati locali.
+Per includere la configurazione e i report esportati in cartelle esterne,
+salvarne una copia separata.
 
 ## Modalità Standard
 
@@ -498,8 +516,8 @@ completato tutte le misure previste.
 
 1. Il lotto, la revisione del setup, il piano, le misure e le eventuali deroghe
    vengono salvati insieme in un'unica transazione.
-2. Soltanto dopo il salvataggio viene chiesto se generare subito il PDF.
-3. Se le etichette sono abilitate, viene chiesto separatamente se stamparle.
+2. Se la stampa automatica è attiva, l'etichetta viene inviata alla stampante.
+3. Il report PDF viene salvato automaticamente oppure proposto, secondo le opzioni del report.
 4. La finestra comunica il risultato e si chiude.
 
 Se si sceglie di non generare il PDF, si annulla il selettore del file oppure
@@ -551,7 +569,7 @@ fornitori, avviso per meno di 30 componenti controllati e dettaglio dei lotti.
 
 I percorsi sono definiti nel file `qc_inspector.conf`.
 
-Configurazione predefinita per pacchetto `.deb`:
+Percorsi predefiniti per i pacchetti `.deb` e `.rpm`:
 
 ```text
 db_path = /var/qc-inspector/qc_database.sqlite
@@ -578,12 +596,6 @@ articolo (nome setup), descrizione, numero lotto, quantità lotto, quantità
 controllata, operatore ed esito. Per i lotti creati prima dell'introduzione della quantità
 lotto viene mostrato `—`.
 
-Nel pacchetto `.deb` il database predefinito è:
-
-```text
-/var/qc-inspector/qc_database.sqlite
-```
-
 ### PDF
 
 Quando si carica un PDF in programmazione, il file viene copiato nella cartella
@@ -593,15 +605,9 @@ Il nome del PDF salvato è basato sull'hash SHA-256 del file. Questo evita
 duplicati: se lo stesso PDF viene caricato più volte, viene riutilizzata la
 stessa copia.
 
-Nel pacchetto `.deb` la cartella predefinita è:
-
-```text
-/var/qc-inspector/pdf
-```
-
 ### Configurazione
 
-Nel pacchetto `.deb`:
+Nei pacchetti `.deb` e `.rpm`:
 
 ```text
 /etc/qc-inspector/qc_inspector.conf
@@ -637,7 +643,7 @@ Se le variabili XDG non sono impostate vengono usati rispettivamente
 Se `db_path` o `pdf_dir` sono percorsi relativi, vengono risolti rispetto alla
 cartella del file `.conf`.
 
-## Permessi su installazione .deb
+## Permessi per i pacchetti di sistema
 
 Per accedere al database e alla cartella PDF condivisa, l'utente deve appartenere
 al gruppo:
@@ -656,9 +662,14 @@ Dopo il comando, l'utente deve chiudere la sessione e rientrare.
 
 ## Etichette
 
-In **Configurazione → Opzioni**, abilitare **Proponi la stampa dell'etichetta
-a fine controllo**, scegliere il nome della stampante CUPS e il numero di
-copie, quindi premere **Salva opzioni**.
+In **Configurazione → Etichetta**, scegliere la stampante CUPS e il numero di
+copie. Impostare larghezza e altezza in millimetri e comporre il modello con testo
+libero e campi del controllo, usando **Inserisci campo**. Il modello supporta
+`# Titolo`, `## Sottotitolo`, `**grassetto**`, `*corsivo*` e un separatore
+orizzontale con `---` su una riga dedicata. L'anteprima si aggiorna
+con dati di esempio. Se si desidera stampare a ogni salvataggio del controllo,
+selezionare **Stampa automaticamente alla chiusura del controllo** e premere
+**Salva etichetta**. La stampa automatica è inizialmente disattivata.
 
 Per stampare serve il comando di sistema `lp`. Nel pacchetto `.deb` viene
 richiesta la dipendenza `cups-client`.
@@ -692,10 +703,10 @@ which lp
 Verificare il nome stampante:
 
 ```bash
-lpstat -p
+lpstat -e
 ```
 
-Aggiornare **Nome stampante CUPS** in **Configurazione → Opzioni**.
+Premere **Aggiorna** accanto a **Stampante CUPS** in **Configurazione → Etichetta**.
 
 ### Il separatore decimale non è quello atteso
 

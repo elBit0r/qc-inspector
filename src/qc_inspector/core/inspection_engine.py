@@ -3,9 +3,11 @@ inspection_engine.py
 Logica di valutazione PASS/FAIL per controlli dimensionali e Sì/No.
 """
 
+from decimal import Context, Decimal, localcontext
 from typing import Optional, Tuple
 
 from .app_config import format_decimal
+from .sampling_plans import CRITICALITY_PREFIXES
 
 
 STATUS_PASS = "PASS"
@@ -14,11 +16,45 @@ STATUS_DEROGATION = "ACCETTATO IN DEROGA"
 STATUS_INCOMPLETE = "INCOMPLETO"
 STATUS_EMPTY = "NESSUNA MISURA"
 
-CRITICALITY_PREFIXES = {
-    "C": "critical",
-    "I": "important",
-    "N": "normal",
+DEFAULT_BOOLEAN_LABELS = "yes_no"
+BOOLEAN_LABELS = {
+    DEFAULT_BOOLEAN_LABELS: ("Sì", "No"),
+    "pass_fail": ("Pass", "Fail"),
+    "ok_ko": ("OK", "KO"),
 }
+
+
+def get_boolean_labels(control: dict) -> tuple[str, str]:
+    return BOOLEAN_LABELS.get(
+        control.get("boolean_labels"), BOOLEAN_LABELS[DEFAULT_BOOLEAN_LABELS]
+    )
+
+
+def format_boolean_answer(control: dict, value: Optional[bool]) -> str:
+    if value is None:
+        return "—"
+    positive, negative = get_boolean_labels(control)
+    return positive if value else negative
+
+
+# Copre somme e differenze esatte anche tra REAL SQLite agli estremi
+# dell'intervallo binary64 (da 5e-324 a circa 1.8e308).
+_DIMENSIONAL_CONTEXT = Context(prec=650)
+
+
+def get_dimensional_limits(nominal: float | Decimal, tol_plus: float,
+                           tol_minus: float) -> Tuple[Decimal, Decimal]:
+    target = Decimal(str(nominal))
+    with localcontext(_DIMENSIONAL_CONTEXT):
+        return (
+            target - Decimal(str(tol_minus)).copy_abs(),
+            target + Decimal(str(tol_plus)).copy_abs(),
+        )
+
+
+def is_within_dimensional_limits(value: Decimal, lower: Decimal,
+                                 upper: Decimal) -> bool:
+    return not value.is_nan() and lower <= value <= upper
 
 
 def evaluate_dimensional(value: float, nominal: float,
@@ -27,33 +63,30 @@ def evaluate_dimensional(value: float, nominal: float,
     Valuta un controllo dimensionale.
     Restituisce (pass_fail, messaggio).
     """
-    lower = nominal - abs(tol_minus)
-    upper = nominal + abs(tol_plus)
+    # La rappresentazione testuale preserva il valore decimale di input
+    # dei float restituiti da SQLite e dai widget Qt.
+    measured = Decimal(str(value))
+    target = Decimal(str(nominal))
+    lower, upper = get_dimensional_limits(target, tol_plus, tol_minus)
+    with localcontext(_DIMENSIONAL_CONTEXT):
+        deviation = format_decimal(measured - target, signed=True)
 
-    if lower <= value <= upper:
-        deviation = value - nominal
-        return True, f"PASS  ({format_decimal(deviation, signed=True)})"
-    else:
-        deviation = value - nominal
-        if value < lower:
-            return False, (
-                f"FAIL  ({format_decimal(deviation, signed=True)}  — "
-                f"sotto il minimo {format_decimal(lower)})"
-            )
-        else:
-            return False, (
-                f"FAIL  ({format_decimal(deviation, signed=True)}  — "
-                f"sopra il massimo {format_decimal(upper)})"
-            )
+    if is_within_dimensional_limits(measured, lower, upper):
+        return True, f"PASS  ({deviation})"
+    if not measured.is_nan() and measured < lower:
+        return False, f"FAIL  ({deviation}  — sotto il minimo {format_decimal(lower)})"
+    return False, f"FAIL  ({deviation}  — sopra il massimo {format_decimal(upper)})"
 
 
-def evaluate_yesno(value: bool, expected: bool = True) -> Tuple[bool, str]:
+def evaluate_yesno(value: bool, expected: bool = True, *,
+                   label: Optional[str] = None) -> Tuple[bool, str]:
     """
     Valuta un controllo Sì/No.
     Di default il risultato atteso è Sì (presenza).
     """
     result = (value == expected)
-    label = "Sì" if value else "No"
+    if label is None:
+        label = format_boolean_answer({}, value)
     return result, f"{'PASS' if result else 'FAIL'}  (risposta: {label})"
 
 
@@ -75,7 +108,9 @@ def evaluate_control(control: dict, value_num: Optional[float],
     elif control["control_type"] == "yesno":
         if value_bool is None:
             return False, "FAIL  (nessuna risposta)"
-        return evaluate_yesno(value_bool)
+        return evaluate_yesno(
+            value_bool, label=format_boolean_answer(control, value_bool)
+        )
     else:
         return False, "FAIL  (tipo controllo sconosciuto)"
 
@@ -313,6 +348,7 @@ def get_control_limits(control: dict) -> Tuple[Optional[float], Optional[float]]
     """Restituisce (limite_inferiore, limite_superiore) per controlli dimensionali."""
     if control["control_type"] != "dimensional":
         return None, None
-    lower = control["nominal"] - abs(control["tol_minus"])
-    upper = control["nominal"] + abs(control["tol_plus"])
-    return lower, upper
+    lower, upper = get_dimensional_limits(
+        control["nominal"], control["tol_plus"], control["tol_minus"]
+    )
+    return float(lower), float(upper)

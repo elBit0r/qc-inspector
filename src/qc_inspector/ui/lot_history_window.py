@@ -3,6 +3,8 @@ lot_history_window.py
 Finestra storico lotti: selezione setup, elenco lotti e rigenerazione report PDF.
 """
 
+from os.path import join
+
 from PyQt5.QtCore import Qt, QDate, QRectF
 from PyQt5.QtGui import QColor, QBrush, QPainter, QPen, QFont
 from PyQt5.QtWidgets import (
@@ -14,7 +16,11 @@ from PyQt5.QtWidgets import (
 )
 
 from ..database import db_manager as db
-from ..core.report_generator import generate_report, generate_global_supplier_report
+from ..core.app_config import get_report_dir, is_report_auto_save_enabled, load_or_create_config
+from ..core.report_generator import (
+    default_lot_report_name, generate_global_supplier_report, generate_report,
+    save_automatic_lot_report,
+)
 
 
 class BarChartWidget(QWidget):
@@ -132,10 +138,10 @@ class LotHistoryWindow(QMainWindow):
                 background:white; border:1px solid #d8dee5;
                 border-radius:7px; top:-1px;
             }
+            QTabBar { font-weight:600; }
             QTabBar::tab {
                 background:#e8edf2; color:#435363; border:1px solid #d1d9e0;
                 border-bottom:none; padding:10px 18px; margin-right:2px;
-                font-weight:600;
             }
             QTabBar::tab:selected { background:white; color:#1f4e78; }
             QTabBar::tab:hover:!selected { background:#f1f4f7; }
@@ -403,7 +409,8 @@ class LotHistoryWindow(QMainWindow):
 
         default_name = f"report_fornitori_{start_iso}_{end_iso}.pdf"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Salva report globale fornitori", default_name, "PDF (*.pdf)"
+            self, "Salva report globale fornitori",
+            join(get_report_dir(load_or_create_config()), default_name), "PDF (*.pdf)",
         )
         if not path:
             return
@@ -632,40 +639,28 @@ class LotHistoryWindow(QMainWindow):
             )
             return
 
-        setup = report_data["setup"]
-        default_name = self._default_report_name(setup, lot)
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Salva report",
-            default_name,
-            "PDF (*.pdf)"
-        )
-        if not path:
-            return
-
         try:
-            generate_report(
-                path,
-                report_data["setup"],
-                report_data["controls"],
-                report_data["summary"]
-            )
+            cfg = load_or_create_config()
+            if is_report_auto_save_enabled(cfg):
+                path = save_automatic_lot_report(report_data, cfg)
+            else:
+                default_name = default_lot_report_name(report_data["setup"], lot)
+                path, _ = QFileDialog.getSaveFileName(
+                    self, "Salva report", join(get_report_dir(cfg), default_name),
+                    "PDF (*.pdf)",
+                )
+                if not path:
+                    return
+                generate_report(
+                    path, report_data["setup"],
+                    report_data["controls"], report_data["summary"],
+                )
         except Exception as e:
             QMessageBox.critical(self, "Errore", f"Errore generazione report:\n{e}")
             return
 
         QMessageBox.information(self, "Report", f"Report salvato:\n{path}")
         self.statusBar().showMessage(f"Report rigenerato: {path}")
-
-    @staticmethod
-    def _default_report_name(setup: dict, lot: dict) -> str:
-        def safe_part(text: str) -> str:
-            cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
-            return cleaned.strip("_") or "valore"
-
-        setup_name = safe_part(str(setup.get("name") or "setup"))
-        lot_code = safe_part(str(lot.get("lot_code") or "lotto"))
-        return f"{setup_name}_{lot_code}.pdf"
 
     @staticmethod
     def _format_datetime(value: str | None) -> str:

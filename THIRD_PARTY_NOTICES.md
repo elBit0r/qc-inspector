@@ -66,7 +66,6 @@ corrispondenti della stessa build.
 | `assets/icons/inspection.svg` | `e0cf3d27487b4db07af6bca9521e9f0e0005b5f4df450ab5ef8b73bada9db97a` | Icona originale del titolare di QC Inspector; paternità confermata il 29 settembre 2026 |
 | `assets/icons/master-data.svg` | `e4c84c74c80dc338ba9d32ed708868c7ed994504ce5616b7d0ff205d104425c1` | Icona originale del titolare di QC Inspector; paternità confermata il 29 settembre 2026 |
 | `assets/icons/programming.svg` | `ff442ebe01c8454d864678f601cf4ba2764f99f8024aa7c637a3e9d8e6f903e3` | Icona originale del titolare di QC Inspector; paternità confermata il 29 settembre 2026 |
-| `assets/icons/qc-inspector-256.png` | `d6ef770f270b7ed4905eeb950d7653e0206f54e22e8d7fee6058aed64bfd8ca2` | Icona originale del titolare di QC Inspector; paternità confermata il 29 settembre 2026 |
 | `assets/icons/qc-inspector.png` | `e5efa587b288d1773ceaf0ecf6a60436691f8da1f119531f50505f44ea7064bf` | Icona originale del titolare di QC Inspector; paternità confermata il 29 settembre 2026 |
 | `main-icon.png` | `6980b9d9235bb5d14d7d90cb77cdd7628a5fb9d5a19765a988e4299b0f438340` | Icona originale del titolare di QC Inspector; paternità confermata il 29 settembre 2026 |
 

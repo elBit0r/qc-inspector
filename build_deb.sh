@@ -21,7 +21,13 @@ fi
 command -v readelf >/dev/null || { echo "Installare binutils (readelf)." >&2; exit 1; }
 command -v dpkg-deb >/dev/null || { echo "Installare dpkg (dpkg-deb)." >&2; exit 1; }
 
-"$ROOT_DIR/build.sh"
+case "${1:-}" in
+  "") bash "$ROOT_DIR/build.sh" --portable-only ;;
+  --from-bundle-with-rpm)
+    command -v rpmbuild >/dev/null || { echo "Installare rpm (rpmbuild)." >&2; exit 1; }
+    ;;
+  *) echo "Uso: $0" >&2; exit 2 ;;
+esac
 
 # Ricava il requisito reale degli ELF incorporati, non quello dell'host.
 echo "Calcolo la versione minima di glibc..."
@@ -88,7 +94,7 @@ Section: utils
 Priority: optional
 Architecture: $ARCH
 Maintainer: QC Inspector Team
-Depends: libc6 (>= $GLIBC_MIN), libstdc++6, cups-client, libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good
+Depends: libc6 (>= $GLIBC_MIN), libstdc++6, cups-client, xdg-utils, libegl1, libgl1, libdrm2, libxcb1, libxcb-cursor0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good
 Description: QC Inspector desktop application
  PyQt-based tool for setup programming and dimensional inspection.
 EOF
@@ -111,7 +117,7 @@ fail_unsafe_path() {
 }
 
 case "${1:-}" in
-  install|upgrade)
+  install|upgrade|[1-9]*)
     # /etc è amministrata da root: una directory reale sotto /etc non può
     # essere sostituita dagli utenti mentre ne vengono rimossi i permessi di
     # scrittura. Bloccarla prima di ispezionare il conffile chiude la race.
@@ -270,3 +276,7 @@ dpkg-deb --root-owner-group --build "$PKG_DIR"
 echo ""
 echo "Pacchetto creato:"
 echo "  $PKG_DIR.deb"
+
+if [[ "${1:-}" == "--from-bundle-with-rpm" ]]; then
+  bash "$ROOT_DIR/packaging/build_rpm.sh" "$VERSION" "$GLIBC_MIN" "$PKG_DIR"
+fi

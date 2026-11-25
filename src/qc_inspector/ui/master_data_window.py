@@ -1,9 +1,10 @@
 """Gestione delle anagrafiche e dei piani di campionamento."""
 
 import sqlite3
+from pathlib import Path
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor
+from PyQt5.QtCore import Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QColor, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
     QCheckBox, QComboBox, QFrame, QGroupBox, QLabel, QLineEdit, QMainWindow,
@@ -12,6 +13,8 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget, QHeaderView, QStyle,
 )
 
+from .backup_tab import BackupTab
+from .label_options_tab import LabelOptionsTab
 from ..database import db_manager as db
 from ..core import app_config
 from ..core.audio_feedback import MeasurementSoundPlayer
@@ -21,7 +24,6 @@ from ..core.sampling_plans import (
     SAMPLING_PLAN_LABELS,
     SAMPLING_PLANS,
     validate_sampling_plan,
-    validate_sampling_plans,
 )
 
 
@@ -30,7 +32,7 @@ class RecordDialog(QDialog):
 
     def __init__(self, title: str, fields: list[tuple[str, str]],
                  record: dict | None = None, required_keys: tuple[str, ...] = ("name",),
-                 parent=None):
+                 parent=None, *, validate_name=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(480)
@@ -50,6 +52,8 @@ class RecordDialog(QDialog):
         self.fields = fields
         self._inputs = {}
         self._required_keys = required_keys
+        self._validate_name = validate_name
+        self._original_name = (record or {}).get("name")
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -93,6 +97,13 @@ class RecordDialog(QDialog):
                 QMessageBox.warning(
                     self, "Dato obbligatorio", f"Inserisci {label.lower()}."
                 )
+                return
+        if self._validate_name and self.value("name") != self._original_name:
+            try:
+                self._validate_name(self.value("name"))
+            except ValueError as exc:
+                QMessageBox.warning(self, "Nome non valido", str(exc))
+                self._inputs["name"].setFocus()
                 return
         self.accept()
 
@@ -351,6 +362,7 @@ class RegistryTab(QWidget):
             dialog = RecordDialog(
                 f"{action} {self.title}", self.fields, record,
                 self.required_keys, self,
+                validate_name=db.validate_supplier_name if self.kind == "supplier" else None,
             )
         if dialog.exec_() != QDialog.Accepted:
             return
@@ -376,6 +388,9 @@ class RegistryTab(QWidget):
                 if self.kind == "sampling_class"
                 else "Esiste già un record con questo nome."
             )
+            return
+        except ValueError as exc:
+            QMessageBox.warning(self, "Dati non validi", str(exc))
             return
         self.refresh()
         self.records_changed.emit()
@@ -634,7 +649,7 @@ class SamplingPlansTab(QWidget):
     def selected_class_id(self) -> int | None:
         return self.cmb_sampling_class.currentData()
 
-    def refresh_classes(self):
+    def refresh_classes(self, *, force=False):
         """Aggiorna il menu senza perdere modifiche della classe ancora presente."""
         classes = db.get_all_sampling_classes()
         previous_id = self._current_class_id
@@ -652,7 +667,7 @@ class SamplingPlansTab(QWidget):
         self.cmb_sampling_class.blockSignals(False)
 
         selected_id = self.selected_class_id()
-        if previous_id == selected_id and previous_id is not None:
+        if not force and previous_id == selected_id and previous_id is not None:
             return
         self._load_sampling_class(selected_id)
 
@@ -758,9 +773,6 @@ class SamplingPlansTab(QWidget):
         return table
 
     def _populate_row(self, table: QTableWidget, row: int, values):
-        values = list(values)
-        for ac_column, re_column in self._AC_TO_RE_COLUMNS.items():
-            values[re_column] = int(values[ac_column]) + 1
         for column, value in enumerate(values):
             text = "∞" if column == 1 and value is None else str(value)
             item = QTableWidgetItem(text)
@@ -816,10 +828,6 @@ class SamplingPlansTab(QWidget):
                 item = table.item(row_index, column)
                 text = item.text().strip() if item else ""
                 row[key] = None if column == 1 and text == "∞" else int(text)
-            for ac_column, re_column in self._AC_TO_RE_COLUMNS.items():
-                ac_key = SAMPLING_PLAN_COLUMNS[ac_column]
-                re_key = SAMPLING_PLAN_COLUMNS[re_column]
-                row[re_key] = row[ac_key] + 1
             rows.append(row)
         return rows
 
@@ -960,7 +968,6 @@ class SamplingPlansTab(QWidget):
             return False
         try:
             plans = self._plans_payload()
-            validate_sampling_plans(plans)
             db.save_sampling_plans(sampling_class_id, plans)
         except (TypeError, ValueError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Piani non validi", str(exc))
@@ -983,18 +990,11 @@ class OptionsTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
         form = QFormLayout()
-        self.label_enable = QCheckBox("Proponi la stampa dell'etichetta a fine controllo")
         self.audio_enable = QCheckBox("Abilita i suoni PASS/FAIL durante il controllo")
         self.audio_enable.setIcon(self.style().standardIcon(QStyle.SP_MediaVolume))
-        self.label_printer = QLineEdit()
-        self.labels_qta = QSpinBox()
-        self.labels_qta.setRange(1, 999)
         self.decimal_separator = QComboBox()
         self.decimal_separator.addItem("Punto (.)", ".")
         self.decimal_separator.addItem("Virgola (,)", ",")
-        form.addRow("Stampa etichette:", self.label_enable)
-        form.addRow("Nome stampante CUPS:", self.label_printer)
-        form.addRow("Copie etichetta:", self.labels_qta)
         form.addRow("Separatore decimale:", self.decimal_separator)
         form.addRow("Feedback audio:", self.audio_enable)
         self.audio_files = {}
@@ -1026,15 +1026,23 @@ class OptionsTab(QWidget):
                 row.addWidget(button)
             form.addRow(label, row)
         form.addRow("Prova audio:", self.audio_status)
-        self.report_footer_text = QLineEdit()
-        self.report_footer_text.setPlaceholderText("Es. Nome azienda (facoltativo)")
-        form.addRow("Testo footer report:", self.report_footer_text)
         self.paths = {}
-        for key, label in (("db_path", "Database:"), ("pdf_dir", "Cartella PDF:")):
+        for key, label, tooltip in (
+            ("db_path", "Database:", "Apri la cartella che contiene il database"),
+            ("pdf_dir", "Cartella PDF:", "Apri la cartella PDF"),
+        ):
+            row = QHBoxLayout()
             field = QLineEdit()
             field.setReadOnly(True)
             self.paths[key] = field
-            form.addRow(label, field)
+            row.addWidget(field, 1)
+            button = QPushButton("Sfoglia…")
+            button.setIcon(self.style().standardIcon(QStyle.SP_DialogOpenButton))
+            button.setToolTip(tooltip)
+            button.setAccessibleName(tooltip)
+            button.clicked.connect(lambda _=False, path_key=key: self._browse_path(path_key))
+            row.addWidget(button)
+            form.addRow(label, row)
         layout.addLayout(form)
         info = QLabel("Le modifiche vengono applicate con Salva opzioni. "
                       "Riapri le finestre già aperte per aggiornare la visualizzazione dei numeri.")
@@ -1053,12 +1061,6 @@ class OptionsTab(QWidget):
             cfg = app_config.load_or_create_config()
             for key, field in self.audio_files.items():
                 field.setText(cfg.get(key, ""))
-            self.label_printer.setText(cfg["label_printer"])
-            self.report_footer_text.setText(cfg["report_footer_text"])
-            self.labels_qta.setValue(int(cfg["labels_qta"]))
-            self.label_enable.setChecked(
-                cfg["label_enable"].upper() in {"YES", "Y", "TRUE", "1", "ON"}
-            )
             self.audio_enable.setChecked(
                 cfg["audio_enable"].strip().upper() in {"YES", "Y", "TRUE", "1", "ON"}
             )
@@ -1070,6 +1072,16 @@ class OptionsTab(QWidget):
         except (OSError, ValueError) as exc:
             self.status.setText(f"Impossibile caricare le opzioni: {exc}")
             self.btn_save.setEnabled(False)
+
+    def _browse_path(self, key):
+        value = self.paths[key].text()
+        if not value:
+            return
+        path = Path(app_config.get_config_path()).parent / value
+        folder = path.parent if key == "db_path" else path
+        if not folder.is_dir() or not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
+            QMessageBox.warning(self, "Cartella non disponibile",
+                                f"Impossibile aprire la cartella:\n{folder}")
 
     def _choose_audio(self, field):
         filename, _ = QFileDialog.getOpenFileName(
@@ -1090,11 +1102,7 @@ class OptionsTab(QWidget):
     def _values(self):
         return {
             **{key: field.text().strip() for key, field in self.audio_files.items()},
-            "label_printer": self.label_printer.text().strip(),
-            "labels_qta": str(self.labels_qta.value()),
-            "label_enable": "YES" if self.label_enable.isChecked() else "NO",
             "audio_enable": "YES" if self.audio_enable.isChecked() else "NO",
-            "report_footer_text": self.report_footer_text.text().strip(),
             "decimal_separator": self.decimal_separator.currentData(),
         }
 
@@ -1114,10 +1122,149 @@ class OptionsTab(QWidget):
         return True
 
 
+class ReportOptionsTab(QWidget):
+    """Preferenze condivise dei report PDF."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._saved = None
+        self._logo_value = ""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        form = QFormLayout()
+        logo_row = QHBoxLayout()
+        self.logo_file = QLineEdit()
+        self.logo_file.setReadOnly(True)
+        logo_row.addWidget(self.logo_file, 1)
+        browse = QPushButton("Sfoglia…")
+        browse.setIcon(self.style().standardIcon(QStyle.SP_DialogOpenButton))
+        browse.clicked.connect(self._choose_logo)
+        logo_row.addWidget(browse)
+        restore = QPushButton("Usa predefinito")
+        restore.setIcon(self.style().standardIcon(QStyle.SP_DialogResetButton))
+        restore.clicked.connect(lambda: self._set_logo(app_config.DEFAULT_REPORT_LOGO))
+        logo_row.addWidget(restore)
+        remove = QPushButton("Rimuovi")
+        remove.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
+        remove.clicked.connect(lambda: self._set_logo(""))
+        logo_row.addWidget(remove)
+        form.addRow("Logo:", logo_row)
+        self.logo_preview = QLabel()
+        self.logo_preview.setFixedSize(280, 104)
+        self.logo_preview.setAlignment(Qt.AlignCenter)
+        self.logo_preview.setStyleSheet(
+            "background: white; color: #374151; border: 1px solid #cbd5e1;"
+        )
+        self.logo_preview.setAccessibleName("Anteprima del logo del report")
+        form.addRow("Anteprima:", self.logo_preview)
+        self.footer_text = QLineEdit()
+        self.footer_text.setPlaceholderText("Es. Nome azienda")
+        form.addRow("Testo a piè di pagina:", self.footer_text)
+        directory_row = QHBoxLayout()
+        self.report_dir = QLineEdit()
+        self.report_dir.setPlaceholderText("Nessuna cartella predefinita")
+        directory_row.addWidget(self.report_dir, 1)
+        browse_directory = QPushButton("Sfoglia…")
+        browse_directory.setIcon(self.style().standardIcon(QStyle.SP_DialogOpenButton))
+        browse_directory.clicked.connect(self._choose_report_dir)
+        directory_row.addWidget(browse_directory)
+        form.addRow("Cartella report:", directory_row)
+        self.auto_save = QCheckBox("Salva automaticamente i report di collaudo")
+        form.addRow(self.auto_save)
+        directory_info = QLabel("Il salvataggio automatico richiede una cartella. "
+                                "I PDF vengono organizzati per fornitore, anno e mese del lotto.")
+        directory_info.setWordWrap(True)
+        form.addRow(directory_info)
+        layout.addLayout(form)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        self.btn_save = QPushButton("Salva opzioni report")
+        self.btn_save.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        self.btn_save.setProperty("role", "primary")
+        self.btn_save.clicked.connect(self.save)
+        layout.addWidget(self.btn_save, alignment=Qt.AlignLeft)
+        layout.addStretch()
+        try:
+            cfg = app_config.load_or_create_config()
+            self._set_logo(cfg["report_logo_file"])
+            self.footer_text.setText(cfg["report_footer_text"])
+            self.report_dir.setText(cfg["report_dir"])
+            self.auto_save.setChecked(app_config.is_report_auto_save_enabled(cfg))
+            self._saved = self._values()
+        except (OSError, ValueError) as exc:
+            self.status.setText(f"Impossibile caricare le opzioni report: {exc}")
+            self.btn_save.setEnabled(False)
+
+    def _choose_logo(self):
+        initial_path = (
+            "" if self._logo_value == app_config.DEFAULT_REPORT_LOGO else self._logo_value
+        )
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Scegli il logo", initial_path,
+            "Immagini (*.png *.jpg *.jpeg);;Tutti i file (*)",
+        )
+        if filename:
+            self._set_logo(filename)
+
+    def _choose_report_dir(self):
+        directory = QFileDialog.getExistingDirectory(
+            self, "Scegli la cartella report", app_config.get_report_dir(self._values()),
+        )
+        if directory:
+            self.report_dir.setText(directory)
+
+    def _set_logo(self, value):
+        self._logo_value = value
+        self.logo_file.setText(
+            "QC Inspector (predefinito)" if value == app_config.DEFAULT_REPORT_LOGO
+            else value or "Nessun logo"
+        )
+        self.logo_preview.setToolTip("")
+        if not value:
+            self.logo_preview.setText("Nessun logo")
+            return
+        pixmap = QPixmap()
+        try:
+            with app_config.load_report_logo(value) as source:
+                if not pixmap.loadFromData(source.read()):
+                    raise ValueError("Formato non supportato dall’anteprima.")
+        except ValueError as exc:
+            self.logo_preview.setText("Anteprima non disponibile")
+            self.logo_preview.setToolTip(str(exc))
+            return
+        self.logo_preview.setPixmap(
+            pixmap.scaled(256, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+
+    def _values(self):
+        return {
+            "report_logo_file": self._logo_value,
+            "report_footer_text": self.footer_text.text().strip(),
+            "report_dir": self.report_dir.text().strip(),
+            "report_auto_save": "YES" if self.auto_save.isChecked() else "NO",
+        }
+
+    @property
+    def dirty(self):
+        return self._saved is not None and self._values() != self._saved
+
+    def save(self):
+        values = self._values()
+        try:
+            app_config.save_options(values)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Opzioni report non salvate", str(exc))
+            return False
+        self._saved = values
+        self.status.setText("Opzioni report salvate.")
+        return True
+
+
 class MasterDataWindow(QMainWindow):
     """Finestra Configurazione con registri, classi e piani di campionamento."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, restore_available=None):
         super().__init__(parent)
         self.setWindowTitle("QC Inspector — Configurazione")
         self.resize(1240, 720)
@@ -1143,10 +1290,10 @@ class MasterDataWindow(QMainWindow):
                 background:white; border:1px solid #d8dee5;
                 border-radius:7px; top:-1px;
             }
+            QTabBar { font-weight:600; }
             QTabBar::tab {
                 background:#e8edf2; color:#435363; border:1px solid #d1d9e0;
                 border-bottom:none; padding:10px 18px; margin-right:2px;
-                font-weight:600;
             }
             QTabBar::tab:selected { background:white; color:#1f4e78; }
             QTabBar::tab:hover:!selected { background:#f1f4f7; }
@@ -1165,11 +1312,13 @@ class MasterDataWindow(QMainWindow):
             }
             QPushButton[role="danger"]:hover { background:#fde8e8; }
             QPushButton:disabled { color:#9aa5ae; background:#edf0f2; }
-            QComboBox, QSpinBox {
+            QComboBox, QSpinBox, QDoubleSpinBox {
                 min-height:28px; background:white; border:1px solid #b7c1cb;
                 border-radius:4px; padding:0 7px;
             }
-            QComboBox:focus, QSpinBox:focus { border:2px solid #2f75b5; }
+            QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+                border:2px solid #2f75b5;
+            }
             QTableWidget#registryTable {
                 background:white; alternate-background-color:#f6f8fa;
                 border:1px solid #d8dee5; border-radius:5px;
@@ -1209,13 +1358,46 @@ class MasterDataWindow(QMainWindow):
         self.tabs.addTab(self.sampling_tab, "Campionamento")
         self.options_tab = OptionsTab()
         self.tabs.addTab(self.options_tab, "Opzioni")
+        self.report_options_tab = ReportOptionsTab()
+        self.tabs.addTab(self.report_options_tab, "Report")
+        self.label_options_tab = LabelOptionsTab()
+        self.tabs.addTab(self.label_options_tab, "Etichetta")
+        self._restore_available = restore_available
+        self.backup_tab = BackupTab(self._can_restore)
+        self.tabs.addTab(self.backup_tab, "Backup")
+        self.backup_tab.restored.connect(self._refresh_after_restore)
         self.sampling_class_tab.records_changed.connect(
             self.sampling_tab.refresh_classes
         )
         layout.addWidget(self.tabs)
 
+    def _can_restore(self):
+        if self._restore_available is not None and not self._restore_available():
+            QMessageBox.warning(
+                self, "Ripristina backup",
+                "Chiudi prima le finestre di programmazione, controllo e storico.",
+            )
+            return False
+        if self.sampling_tab.dirty:
+            QMessageBox.warning(
+                self, "Ripristina backup",
+                "Salva o annulla le modifiche ai piani di campionamento prima di proseguire.",
+            )
+            return False
+        return True
+
+    def _refresh_after_restore(self):
+        for index in range(self.tabs.count()):
+            page = self.tabs.widget(index)
+            if isinstance(page, RegistryTab):
+                page.refresh()
+        self.sampling_tab.refresh_classes(force=True)
+
     def closeEvent(self, event):
-        if not self.sampling_tab.dirty and not self.options_tab.dirty:
+        editable_tabs = (
+            self.sampling_tab, self.options_tab, self.report_options_tab, self.label_options_tab,
+        )
+        if not any(tab.dirty for tab in editable_tabs):
             event.accept()
             return
         reply = QMessageBox.question(
@@ -1226,7 +1408,7 @@ class MasterDataWindow(QMainWindow):
             QMessageBox.Cancel,
         )
         if reply == QMessageBox.Save:
-            for tab in (self.sampling_tab, self.options_tab):
+            for tab in editable_tabs:
                 if tab.dirty and not tab.save():
                     event.ignore()
                     return

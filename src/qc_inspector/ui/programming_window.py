@@ -20,7 +20,9 @@ from PyQt5.QtGui import QFont, QColor, QKeySequence
 from ..ui.pdf_viewer import PdfViewerWidget
 from ..ui.decimal_spinbox import DecimalSpinBox
 from ..database import db_manager as db
-from ..core.inspection_engine import format_tolerance
+from ..core.inspection_engine import (
+    BOOLEAN_LABELS, DEFAULT_BOOLEAN_LABELS, format_tolerance, get_boolean_labels,
+)
 from ..core.app_config import get_pdf_dir
 from ..core.pdf_storage import store_pdf
 
@@ -430,9 +432,15 @@ class ControlFormWidget(QGroupBox):
 
         self.cmb_type = QComboBox()
         self.cmb_type.addItem("Dimensionale", "dimensional")
-        self.cmb_type.addItem("Sì / No", "yesno")
+        self.cmb_type.addItem("Booleano", "yesno")
         self.cmb_type.currentIndexChanged.connect(self._on_type_changed)
         layout.addRow("Tipo:", self.cmb_type)
+
+        self.lbl_boolean_labels = QLabel("Etichette risposta:")
+        self.cmb_boolean_labels = QComboBox()
+        for key, labels in BOOLEAN_LABELS.items():
+            self.cmb_boolean_labels.addItem(" / ".join(labels), key)
+        layout.addRow(self.lbl_boolean_labels, self.cmb_boolean_labels)
 
         self.cmb_criticality = QComboBox()
         self.cmb_criticality.addItem("C — CRITICA", "C")
@@ -518,6 +526,7 @@ class ControlFormWidget(QGroupBox):
         self._on_type_changed(0)
 
         self.cmb_type.currentIndexChanged.connect(self._update_dirty_state)
+        self.cmb_boolean_labels.currentIndexChanged.connect(self._update_dirty_state)
         self.cmb_criticality.currentIndexChanged.connect(
             self._update_dirty_state
         )
@@ -549,6 +558,7 @@ class ControlFormWidget(QGroupBox):
         return (
             self._balloon_num,
             ctrl_type,
+            self._selected_boolean_labels(ctrl_type),
             self.cmb_criticality.currentData(),
             self.txt_label.text().strip(),
             nominal,
@@ -582,6 +592,7 @@ class ControlFormWidget(QGroupBox):
         self.lbl_balloon.setText("—")
         self.cmb_type.setEnabled(True)
         self.cmb_type.setCurrentIndex(0)
+        self.cmb_boolean_labels.setCurrentIndex(0)
         self.cmb_criticality.setCurrentIndex(2)
         self.txt_label.clear()
         self.spn_nominal.setValue(0)
@@ -593,6 +604,13 @@ class ControlFormWidget(QGroupBox):
     def _on_type_changed(self, index):
         is_dim = (self.cmb_type.currentData() == "dimensional")
         self.grp_dim.setVisible(is_dim)
+        self.lbl_boolean_labels.setVisible(not is_dim)
+        self.cmb_boolean_labels.setVisible(not is_dim)
+
+    def _selected_boolean_labels(self, control_type: str) -> str:
+        if control_type == "yesno":
+            return self.cmb_boolean_labels.currentData()
+        return DEFAULT_BOOLEAN_LABELS
 
     def _update_criticality_style(self, _index: int = -1):
         """Colora il selettore in base alla criticità corrente."""
@@ -629,6 +647,8 @@ class ControlFormWidget(QGroupBox):
         persisted = int(control["id"]) > 0
         self._locked_control_type = control["control_type"] if persisted else None
         self.cmb_type.setEnabled(not persisted)
+        labels_index = self.cmb_boolean_labels.findData(control.get("boolean_labels"))
+        self.cmb_boolean_labels.setCurrentIndex(max(labels_index, 0))
 
         criticality = control.get("criticality", "N")
         criticality_index = self.cmb_criticality.findData(criticality)
@@ -659,6 +679,7 @@ class ControlFormWidget(QGroupBox):
 
         self.lbl_balloon.setText(str(balloon_num))
         self.cmb_type.setCurrentIndex(0)
+        self.cmb_boolean_labels.setCurrentIndex(0)
         self._locked_control_type = None
         self.cmb_type.setEnabled(True)
         self.cmb_criticality.setCurrentIndex(2)
@@ -689,6 +710,7 @@ class ControlFormWidget(QGroupBox):
             "balloon_y": self._balloon_y,
             "pdf_page": self._pdf_page,
             "control_type": ctrl_type,
+            "boolean_labels": self._selected_boolean_labels(ctrl_type),
             "criticality": self.cmb_criticality.currentData(),
             "label": label,
             "nominal": nominal,
@@ -771,7 +793,7 @@ class ControlListWidget(QGroupBox):
                 else:
                     detail = f"  {format_tolerance(c['nominal'], c['tol_plus'], c['tol_minus'])}"
             else:
-                detail = "  Sì/No"
+                detail = "  " + " / ".join(get_boolean_labels(c))
             label = c.get("label") or "(senza etichetta)"
             text = (
                 f"[{c['balloon_num']}] [{criticality}] "
@@ -1153,7 +1175,7 @@ class ProgrammingWindow(QMainWindow):
         fields = (
             "id", "balloon_num", "balloon_x", "balloon_y", "pdf_page",
             "control_type", "criticality", "label", "nominal", "tol_plus",
-            "tol_minus", "description",
+            "tol_minus", "description", "boolean_labels",
         )
         return tuple(
             tuple(control.get(field) for field in fields)
@@ -1472,6 +1494,7 @@ class ProgrammingWindow(QMainWindow):
             "balloon_y": y,
             "pdf_page": page,
             "control_type": "dimensional",
+            "boolean_labels": DEFAULT_BOOLEAN_LABELS,
             "criticality": "N",
             "label": "",
             "nominal": 0.0,

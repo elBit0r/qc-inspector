@@ -3,6 +3,8 @@
 from datetime import datetime, timedelta
 
 
+CRITICALITY_PREFIXES = {"C": "critical", "I": "important", "N": "normal"}
+
 SAMPLING_PLAN_COLUMNS = (
     "lot_min", "lot_max",
     "critical_n", "critical_ac", "critical_re",
@@ -193,6 +195,50 @@ def get_default_sampling_plan(profile: str) -> list[dict]:
     return rows
 
 
+def validate_lot_quantity(lot_quantity: int) -> None:
+    if (not isinstance(lot_quantity, int) or isinstance(lot_quantity, bool)
+            or lot_quantity < 1):
+        raise ValueError("La quantità del lotto deve essere un intero positivo.")
+
+
+def validate_sampling_parameters(
+        n: int, ac: int, re: int, lot_quantity: int | None = None) -> None:
+    """Valida una terna, con un limite di quantità quando disponibile."""
+    if any(not isinstance(value, int) or isinstance(value, bool)
+           for value in (n, ac, re)):
+        raise ValueError("n, Ac e Re devono essere numeri interi.")
+    if n < 1:
+        raise ValueError("n deve essere almeno 1.")
+    if not 0 <= ac < n:
+        raise ValueError("Ac deve essere non negativo e minore di n.")
+    if re != ac + 1:
+        raise ValueError("Re deve essere uguale ad Ac + 1.")
+    if lot_quantity is not None:
+        validate_lot_quantity(lot_quantity)
+        if n > lot_quantity:
+            raise ValueError("n non può superare la quantità del lotto.")
+
+
+def resolve_sampling_requirements(plan_row: dict, lot_quantity: int) -> dict:
+    """Adatta le terne nominali alla quantità effettiva del lotto."""
+    validate_lot_quantity(lot_quantity)
+    requirements = {}
+    for criticality, prefix in CRITICALITY_PREFIXES.items():
+        planned_n, ac, re = (
+            plan_row.get(f"{prefix}_{field}") for field in ("n", "ac", "re")
+        )
+        try:
+            validate_sampling_parameters(planned_n, ac, re, plan_row.get("lot_max"))
+            n = min(planned_n, lot_quantity)
+            ac = min(ac, n - 1)
+            re = min(re, n)
+            validate_sampling_parameters(n, ac, re, lot_quantity)
+        except ValueError as exc:
+            raise ValueError(f"Piano {criticality}: {exc}") from exc
+        requirements[criticality] = {"n": n, "ac": ac, "re": re}
+    return requirements
+
+
 def validate_sampling_plan(profile: str, rows: list[dict]) -> None:
     """Valida intervalli e parametri di un singolo piano."""
     if profile not in SAMPLING_PLANS:
@@ -204,15 +250,10 @@ def validate_sampling_plan(profile: str, rows: list[dict]) -> None:
             f"{profile}, ultima riga: Lotto max deve essere infinito (∞)."
         )
 
-    metric_groups = ("critical", "important", "normal")
     previous_max = None
     for index, row in enumerate(rows):
         row_number = index + 1
-        integer_fields = ["lot_min"] + [
-            f"{group}_{suffix}"
-            for group in metric_groups
-            for suffix in ("n", "ac", "re")
-        ]
+        integer_fields = ["lot_min"]
         if row.get("lot_max") is not None:
             integer_fields.append("lot_max")
         if any(
@@ -257,32 +298,16 @@ def validate_sampling_plan(profile: str, rows: list[dict]) -> None:
                     f"si sovrappongono; Lotto min deve essere {expected_min}."
                 )
 
-        for group in metric_groups:
-            sample = row[f"{group}_n"]
-            acceptance = row[f"{group}_ac"]
-            rejection = row[f"{group}_re"]
-            if sample < 1:
-                raise ValueError(
-                    f"{profile}, riga {row_number}: n deve essere almeno 1."
+        for criticality, prefix in CRITICALITY_PREFIXES.items():
+            try:
+                validate_sampling_parameters(
+                    row.get(f"{prefix}_n"), row.get(f"{prefix}_ac"),
+                    row.get(f"{prefix}_re"), lot_max,
                 )
-            if acceptance < 0:
+            except ValueError as exc:
                 raise ValueError(
-                    f"{profile}, riga {row_number}: Ac non può essere negativo."
-                )
-            if rejection != acceptance + 1:
-                raise ValueError(
-                    f"{profile}, riga {row_number}: Re deve essere uguale "
-                    "ad Ac + 1."
-                )
-            if acceptance >= sample or rejection > sample:
-                raise ValueError(
-                    f"{profile}, riga {row_number}: Ac deve essere minore di n "
-                    "e Re non può superare n."
-                )
-            if lot_max is not None and sample > lot_max:
-                raise ValueError(
-                    f"{profile}, riga {row_number}: n non può superare Lotto max."
-                )
+                    f"{profile}, riga {row_number}, {criticality}: {exc}"
+                ) from exc
 
         previous_max = lot_max
 

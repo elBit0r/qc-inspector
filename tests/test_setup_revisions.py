@@ -5,8 +5,11 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
+from PyQt5.QtWidgets import QApplication
+
 import qc_inspector
 from qc_inspector.database import db_manager, schema_manager
+from qc_inspector.ui.inspection_window import InspectionStartDialog, SampleControlRow
 
 
 EXAMPLE_PDF = (Path(qc_inspector.__file__).parent / "assets" / "examples"
@@ -104,6 +107,71 @@ class SetupRevisionTests(unittest.TestCase):
             self.sampling_class_id, [self._control(nominal)], [],
         )
 
+    def test_sampling_configuration_matches_inspection_and_persistence(self):
+        app = QApplication.instance() or QApplication([])
+        setup_id, _ = self._save_setup()
+        plans = db_manager.get_sampling_plans(self.sampling_class_id)
+        row = plans["ESTESO"][0]
+        row.update(normal_n=4, normal_ac=2, normal_re=4)
+        with self.assertRaisesRegex(ValueError, r"Re.*Ac \+ 1"):
+            db_manager.save_sampling_plans(self.sampling_class_id, plans)
+        row["normal_re"] = 3
+        db_manager.save_sampling_plans(self.sampling_class_id, plans)
+
+        dialog = InspectionStartDialog()
+        dialog.cmb_setup.setCurrentIndex(dialog.cmb_setup.findData(setup_id))
+        dialog.cmb_sampling_profile.setCurrentIndex(
+            dialog.cmb_sampling_profile.findData("ESTESO")
+        )
+        dialog.spn_lot_quantity.setValue(2)
+        self.assertEqual(
+            dialog.inspection_data()["sampling_requirements"]["N"],
+            {"n": 2, "ac": 1, "re": 2},
+        )
+        dialog.spn_lot_quantity.setValue(3)
+        self.assertTrue(dialog._sampling_valid)
+        data = dialog.inspection_data()
+        dialog.deleteLater()
+        app.processEvents()
+
+        revision_id = data["setup_revision_id"]
+        control, = db_manager.get_revision_controls(revision_id)
+        requirements = data["sampling_requirements"]
+        self.assertEqual(requirements["N"], {"n": 3, "ac": 2, "re": 3})
+        self.assertEqual(data["n_samples"], 3)
+        measurements = [
+            dict(control_id=control["id"], sample_num=index, value_num=10.0,
+                 value_bool=None, pass_fail=True)
+            for index in (1, 2, 3)
+        ]
+
+        def save(sampling_requirements, n_samples=data["n_samples"]):
+            return db_manager.save_completed_inspection(
+                setup_id, revision_id, "LOTTO", data["lot_quantity"], n_samples,
+                data["sampling_profile"], sampling_requirements, "Operatore",
+                None, "Fornitore", None, measurements,
+            )
+
+        for change, error in (
+            ({"ac": 0}, r"Re.*Ac \+ 1"),
+            ({"ac": 3, "re": 4}, "Ac.*minore di n"),
+            ({"n": 4}, "quantità del lotto"),
+            ({"n": 3.5}, "numeri interi"),
+        ):
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, error):
+                save(dict(requirements, N=dict(requirements["N"], **change)))
+
+        with self.assertRaisesRegex(ValueError, "massimo n"):
+            save(requirements, n_samples=2)
+        self.assertEqual(db_manager.get_lots_for_setup(setup_id), [])
+
+        lot = db_manager.get_lot(save(requirements))
+        self.assertEqual(
+            (lot["n_samples"], lot["normal_n"], lot["normal_ac"], lot["normal_re"]),
+            (3, 3, 2, 3),
+        )
+        self.assertEqual(lot["final_status"], "PASS")
+
     def test_invalid_measurement_payload_rolls_back(self):
         setup_id, _ = self._save_setup()
         revision_id = db_manager.get_setup(setup_id)["setup_revision_id"]
@@ -131,14 +199,104 @@ class SetupRevisionTests(unittest.TestCase):
                     self.assertEqual(connection.execute("SELECT COUNT(*) FROM lots").fetchone()[0], 0)
                     self.assertEqual(connection.execute("SELECT COUNT(*) FROM measurements").fetchone()[0], 0)
 
+    def test_dimensional_limit_pass_is_saved_using_existing_real_columns(self):
+        setup_id, _ = self._save_setup(nominal=0.7)
+        revision_id = db_manager.get_setup(setup_id)["setup_revision_id"]
+        control, = db_manager.get_revision_controls(revision_id)
+        requirements = {key: {"n": 1, "ac": 0, "re": 1} for key in ("C", "I", "N")}
+        lot_id = db_manager.save_completed_inspection(
+            setup_id, revision_id, "LIMITE", 10, 1, "NORMALE", requirements,
+            "Operatore", None, "Fornitore", None,
+            [dict(control_id=control["id"], sample_num=1, value_num=0.8,
+                  value_bool=None, pass_fail=True)],
+        )
+
+        measurement, = db_manager.get_measurements_for_lot(lot_id)
+        self.assertIsInstance(control["nominal"], float)
+        self.assertIsInstance(measurement["value_num"], float)
+        self.assertEqual(measurement["value_num"], 0.8)
+        self.assertEqual(measurement["pass_fail"], 1)
+        self.assertEqual(db_manager.get_lot(lot_id)["final_status"], "PASS")
+
+    def test_ui_measurement_results_match_persistence_and_forged_results_are_rejected(self):
+        app = QApplication.instance() or QApplication([])
+        dimensional = dict(self._control(nominal=0.7), tol_minus=0.2)
+        yesno = dict(self._control(), control_type="yesno", boolean_labels="ok_ko",
+                     nominal=None, tol_plus=None, tol_minus=None)
+        requirements = {key: {"n": 1, "ac": 0, "re": 1} for key in ("C", "I", "N")}
+        cases = (
+            (dimensional, ((0.499, False), (0.5, True), (0.8, True), (0.801, False))),
+            (yesno, ((True, True), (False, False))),
+        )
+        for definition, measurements in cases:
+            control_type = definition["control_type"]
+            setup_id, _ = db_manager.save_programming_changes(
+                None, control_type, "", "/tmp/disegno.pdf", self.sampling_class_id,
+                [definition], [],
+            )
+            revision_id = db_manager.get_setup(setup_id)["setup_revision_id"]
+            control, = db_manager.get_revision_controls(revision_id)
+            for value, expected_pass in measurements:
+                with self.subTest(control_type=control_type, value=value):
+                    row = SampleControlRow(control, sample_num=1)
+                    emitted = []
+                    row.measurement_saved.connect(lambda *args: emitted.append(args))
+                    if control_type == "dimensional":
+                        row.input.setValue(value)
+                        row.input.editingFinished.emit()
+                    else:
+                        (row.btn_si if value else row.btn_no).click()
+
+                    (control_id, value_num, value_bool, passed), = emitted
+                    expected_status = "PASS" if expected_pass else "FAIL"
+                    self.assertEqual(row.lbl_result.text(), expected_status)
+                    self.assertEqual(passed, expected_pass)
+                    row.deleteLater()
+                    app.processEvents()
+                    measurement = dict(control_id=control_id, sample_num=1,
+                                       value_num=value_num, value_bool=value_bool,
+                                       pass_fail=passed)
+                    lot_id = db_manager.save_completed_inspection(
+                        setup_id, revision_id, f"{control_type}-{value}", 10, 1, "NORMALE",
+                        requirements, "Operatore", None, "Fornitore", None,
+                        [measurement],
+                    )
+                    stored, = db_manager.get_measurements_for_lot(lot_id)
+                    self.assertEqual(stored["pass_fail"], int(passed))
+                    self.assertEqual(db_manager.get_lot(lot_id)["final_status"], expected_status)
+
+                    lots_before = db_manager.get_lots_for_setup(setup_id)
+                    with self.assertRaisesRegex(ValueError, "Esito incompatibile"):
+                        db_manager.save_completed_inspection(
+                            setup_id, revision_id, "ALTERATO", 10, 1, "NORMALE",
+                            requirements, "Operatore", None, "Fornitore", None,
+                            [dict(measurement, pass_fail=not passed)],
+                        )
+                    self.assertEqual(db_manager.get_lots_for_setup(setup_id), lots_before)
+
     def test_yesno_and_complete_derogation(self):
         control = dict(self._control(), control_type="yesno", nominal=None,
                        tol_plus=None, tol_minus=None)
-        setup_id, _ = db_manager.save_programming_changes(
+        setup_id, (saved_control,) = db_manager.save_programming_changes(
             None, "Booleano", "", "/tmp/disegno.pdf", self.sampling_class_id,
             [control], [],
         )
         revision_id = db_manager.get_setup(setup_id)["setup_revision_id"]
+        db_manager.save_programming_changes(
+            setup_id, "Booleano", "", "/tmp/disegno.pdf", self.sampling_class_id,
+            [dict(saved_control, boolean_labels="ok_ko")], [],
+        )
+        current_revision = db_manager.get_setup(setup_id)["setup_revision_id"]
+        self.assertNotEqual(revision_id, current_revision)
+        self.assertEqual(
+            db_manager.get_revision_controls(revision_id)[0]["boolean_labels"],
+            "yes_no",
+        )
+        self.assertEqual(
+            db_manager.get_revision_controls(current_revision)[0]["boolean_labels"],
+            "ok_ko",
+        )
+        revision_id = current_revision
         control_id = db_manager.get_revision_controls(revision_id)[0]["id"]
         requirements = {key: {"n": 1, "ac": 0, "re": 1} for key in ("C", "I", "N")}
         measurement = dict(control_id=control_id, sample_num=1, value_num=None,
@@ -342,6 +500,13 @@ class MigrationTests(unittest.TestCase):
                 ("Legacy", "/tmp/legacy.pdf", sampling_class_id, now, now),
             ).lastrowid)
             connection.execute(
+                "INSERT INTO controls "
+                "(setup_id, balloon_num, balloon_x, balloon_y, pdf_page, "
+                "control_type, criticality, label, description) "
+                "VALUES (?, 1, 0.25, 0.25, 0, 'yesno', 'N', 'Presenza', '')",
+                (setup_id,),
+            )
+            connection.execute(
                 "INSERT INTO setups "
                 "(name, description, pdf_path, sampling_class_id, "
                 "created_at, updated_at) VALUES (?, '', ?, ?, ?, ?)",
@@ -368,9 +533,17 @@ class MigrationTests(unittest.TestCase):
                 "SELECT name, is_obsolete FROM setups ORDER BY id"
             ).fetchall()
             version = connection.execute("PRAGMA user_version").fetchone()[0]
+            control_labels = connection.execute(
+                "SELECT boolean_labels FROM controls"
+            ).fetchall()
+            revision_labels = connection.execute(
+                "SELECT boolean_labels FROM revision_controls"
+            ).fetchall()
             connection.close()
 
-            self.assertEqual(version, 4)
+            self.assertEqual(version, 5)
+            self.assertEqual(control_labels, [("yes_no",)])
+            self.assertEqual(revision_labels, [("yes_no",)])
             self.assertEqual(rows, [("SAVED",)])
             self.assertTrue(all(row[1] == 0 for row in setup_names))
             self.assertEqual(len({row[0].casefold() for row in setup_names}), 2)

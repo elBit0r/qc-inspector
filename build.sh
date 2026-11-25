@@ -10,6 +10,18 @@ VENV_PIP="$ROOT_DIR/.venv/bin/pip"
 PYINSTALLER="$ROOT_DIR/.venv/bin/pyinstaller"
 TARGET="linux-x86_64"
 PACKAGE_DIR="$ROOT_DIR/dist/${APP_NAME}-package"
+MANUAL_NAME="Manuale_operativo_QC_Inspector.pdf"
+MANUAL_PATH="$ROOT_DIR/output/pdf/$MANUAL_NAME"
+
+case "${1:-}" in
+  "")
+    command -v rpmbuild >/dev/null || { echo "Installare rpm (rpmbuild)." >&2; exit 1; }
+    command -v dpkg-deb >/dev/null || { echo "Installare dpkg (dpkg-deb)." >&2; exit 1; }
+    command -v readelf >/dev/null || { echo "Installare binutils (readelf)." >&2; exit 1; }
+    ;;
+  --portable-only) ;;
+  *) echo "Uso: $0 [--portable-only]" >&2; exit 2 ;;
+esac
 
 if [[ "$(uname -m)" != "x86_64" ]]; then
   echo "Build supportata soltanto su host x86_64." >&2
@@ -54,6 +66,8 @@ PY
 
 cd "$ROOT_DIR"
 
+"$VENV_PY" "$ROOT_DIR/tools/generate_manual.py"
+
 echo "Pulizia output precedente..."
 rm -rf build dist
 
@@ -72,6 +86,8 @@ rm -f "dist/$APP_NAME/_internal/"libgst*.so* \
 bash "$ROOT_DIR/tools/check_audio_runtime.sh" "$ROOT_DIR/dist/$APP_NAME/_internal"
 
 echo "Preparo pacchetto..."
+install -m 0644 "$MANUAL_PATH" "dist/$MANUAL_NAME"
+install -m 0644 "dist/$MANUAL_NAME" "dist/$APP_NAME/$MANUAL_NAME"
 mkdir -p "$PACKAGE_DIR"
 cp -r "dist/${APP_NAME}" "$PACKAGE_DIR/"
 cp LICENSE NOTICE.md THIRD_PARTY_NOTICES.md "$PACKAGE_DIR/"
@@ -105,7 +121,7 @@ Version: $APP_VERSION
 Nota:
 - Il pacchetto portable usa il config accanto all'eseguibile.
 - Al primo avvio viene creato il database con un setup di esempio.
-- Il pacchetto .deb usa invece /etc/qc-inspector/qc_inspector.conf.
+- I pacchetti .deb e RPM usano /etc/qc-inspector/qc_inspector.conf.
 EOF
 
 echo "Creo archivio distribuzione..."
@@ -115,7 +131,12 @@ tar -czf "dist/${APP_NAME}-${APP_VERSION}-${TARGET}.tar.gz" -C dist "$(basename 
   sha256sum "${APP_NAME}-${APP_VERSION}-${TARGET}.tar.gz" > "${APP_NAME}-${APP_VERSION}-${TARGET}.tar.gz.sha256"
 )
 
+if [[ "${1:-}" != "--portable-only" ]]; then
+  bash "$ROOT_DIR/build_deb.sh" --from-bundle-with-rpm
+fi
+
 echo ""
 echo "Build completata:"
 echo "  - Eseguibile: dist/${APP_NAME}/${APP_NAME}"
 echo "  - Archivio:   dist/${APP_NAME}-${APP_VERSION}-${TARGET}.tar.gz"
+echo "  - Manuale:   dist/$MANUAL_NAME"

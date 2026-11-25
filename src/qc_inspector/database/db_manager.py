@@ -17,11 +17,12 @@ from typing import Optional, List, Dict
 
 from ..core.app_config import get_db_path
 from ..core.sampling_plans import (
-    SAMPLING_PLAN_COLUMNS, SAMPLING_PLANS,
-    validate_sampling_plans,
+    CRITICALITY_PREFIXES, SAMPLING_PLAN_COLUMNS, SAMPLING_PLANS,
+    validate_lot_quantity, validate_sampling_parameters, validate_sampling_plans,
 )
 from ..core.inspection_engine import (
-    evaluate_sampling_lot, get_required_controls_for_sample,
+    BOOLEAN_LABELS, DEFAULT_BOOLEAN_LABELS,
+    evaluate_control, evaluate_sampling_lot, get_required_controls_for_sample,
     STATUS_EMPTY, STATUS_PASS, STATUS_FAIL, STATUS_DEROGATION,
 )
 
@@ -63,8 +64,11 @@ def _revision_content_hash(setup: Dict, controls: List[Dict]) -> str:
                 for key in (
                     "balloon_num", "balloon_x", "balloon_y", "pdf_page",
                     "control_type", "criticality", "label", "nominal",
-                    "tol_plus", "tol_minus", "description",
+                    "tol_plus", "tol_minus", "description", "boolean_labels",
                 )
+                # Il default mantiene gli hash delle revisioni precedenti.
+                if key != "boolean_labels"
+                or control.get(key, DEFAULT_BOOLEAN_LABELS) != DEFAULT_BOOLEAN_LABELS
             }
             for control in sorted(
                 controls,
@@ -123,8 +127,8 @@ def _create_setup_revision(
             INSERT INTO revision_controls
             (setup_revision_id, source_control_id, balloon_num, balloon_x,
              balloon_y, pdf_page, control_type, criticality, label, nominal,
-             tol_plus, tol_minus, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             tol_plus, tol_minus, description, boolean_labels)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             revision_id, control.get("id"), control["balloon_num"],
             control["balloon_x"], control["balloon_y"],
@@ -132,6 +136,7 @@ def _create_setup_revision(
             control.get("criticality") or "N", control.get("label"),
             control.get("nominal"), control.get("tol_plus"),
             control.get("tol_minus"), control.get("description"),
+            control["boolean_labels"],
         ))
     return revision_id, version_number
 
@@ -183,9 +188,18 @@ def get_all_suppliers() -> List[Dict]:
     return [dict(row) for row in rows]
 
 
+def validate_supplier_name(name: str) -> None:
+    name = name.strip()
+    if not name or any(not (character.isalnum() or character == " ") for character in name):
+        raise ValueError("La ragione sociale può contenere solo lettere, numeri e spazi.")
+
+
 def save_supplier(name: str, vat_code: str, contact: str, email: str,
                   phone: str, notes: str,
                   supplier_id: Optional[int] = None) -> int:
+    name = name.strip()
+    if supplier_id is None:
+        validate_supplier_name(name)
     now = datetime.now().isoformat()
     conn = get_connection()
     try:
@@ -194,15 +208,20 @@ def save_supplier(name: str, vat_code: str, contact: str, email: str,
                 INSERT INTO suppliers
                 (name, vat_code, contact, email, phone, notes, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (name.strip(), vat_code.strip(), contact.strip(), email.strip(),
+            """, (name, vat_code.strip(), contact.strip(), email.strip(),
                   phone.strip(), notes.strip(), now, now))
             result = cursor.lastrowid
         else:
+            previous = conn.execute(
+                "SELECT name FROM suppliers WHERE id=?", (supplier_id,)
+            ).fetchone()
+            if previous is None or previous["name"] != name:
+                validate_supplier_name(name)
             conn.execute("""
                 UPDATE suppliers
                 SET name=?, vat_code=?, contact=?, email=?, phone=?, notes=?, updated_at=?
                 WHERE id=?
-            """, (name.strip(), vat_code.strip(), contact.strip(), email.strip(),
+            """, (name, vat_code.strip(), contact.strip(), email.strip(),
                   phone.strip(), notes.strip(), now, supplier_id))
             result = supplier_id
         conn.commit()
@@ -385,10 +404,7 @@ def get_sampling_plan_for_quantity(
     """Restituisce la riga operativa che comprende la quantità del lotto."""
     if profile not in SAMPLING_PLANS:
         raise ValueError(f"Profilo di campionamento sconosciuto: {profile}.")
-    if not isinstance(lot_quantity, int) or isinstance(lot_quantity, bool):
-        raise ValueError("La quantità del lotto deve essere un numero intero.")
-    if lot_quantity < 1:
-        raise ValueError("La quantità del lotto deve essere positiva.")
+    validate_lot_quantity(lot_quantity)
     conn = get_connection()
     if sampling_class_id is None:
         default_class = conn.execute(
@@ -501,6 +517,12 @@ def save_programming_changes(
 
         for control in controls or []:
             control_id = control.get("id")
+            boolean_labels = DEFAULT_BOOLEAN_LABELS
+            if control["control_type"] == "yesno":
+                boolean_labels = control.get("boolean_labels", DEFAULT_BOOLEAN_LABELS)
+                if (not isinstance(boolean_labels, str)
+                        or boolean_labels not in BOOLEAN_LABELS):
+                    raise ValueError("Coppia di etichette booleane non valida.")
             criticality = control.get("criticality", "N") or "N"
             if criticality not in {"C", "I", "N"}:
                 raise ValueError(
@@ -512,14 +534,15 @@ def save_programming_changes(
                 control.get("nominal"),
                 control.get("tol_plus"), control.get("tol_minus"),
                 control["description"],
+                boolean_labels,
             )
             if control_id is None or int(control_id) < 0:
                 cursor.execute(
                     """INSERT INTO controls
                        (setup_id, balloon_num, balloon_x, balloon_y, pdf_page,
                         control_type, criticality, label, nominal, tol_plus,
-                        tol_minus, description)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        tol_minus, description, boolean_labels)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         setup_id, control["balloon_num"], control["balloon_x"],
                         control["balloon_y"], control["pdf_page"],
@@ -531,7 +554,7 @@ def save_programming_changes(
                     """UPDATE controls
                        SET balloon_num=?, balloon_x=?, balloon_y=?, pdf_page=?,
                            criticality=?, label=?, nominal=?, tol_plus=?,
-                           tol_minus=?, description=?
+                           tol_minus=?, description=?, boolean_labels=?
                        WHERE id=? AND setup_id=?""",
                     (
                         control["balloon_num"], control["balloon_x"],
@@ -700,6 +723,19 @@ def save_completed_inspection(
         supplier_id: Optional[int], measurements: List[Dict],
         notes: str = "") -> int:
     """Salva atomicamente un controllo completo e il suo snapshot storico."""
+    validate_lot_quantity(lot_quantity)
+    sample_counts = {}
+    sampling_values = []
+    for criticality in CRITICALITY_PREFIXES:
+        requirement = sampling_requirements.get(criticality) or {}
+        n, ac, re = (requirement.get(field) for field in ("n", "ac", "re"))
+        try:
+            validate_sampling_parameters(n, ac, re, lot_quantity)
+        except ValueError as exc:
+            raise ValueError(f"Piano {criticality}: {exc}") from exc
+        sample_counts[criticality] = n
+        sampling_values.extend((n, ac, re))
+
     now = datetime.now().isoformat()
     conn = get_connection()
     try:
@@ -721,30 +757,15 @@ def save_completed_inspection(
         if not controls:
             raise ValueError("La revisione del setup non contiene controlli.")
 
-        def values(criticality: str) -> tuple[int, int, int]:
-            requirement = sampling_requirements.get(criticality)
-            if not requirement:
-                raise ValueError(
-                    f"Requisiti di campionamento {criticality} mancanti."
-                )
-            sample_n = int(requirement["n"])
-            acceptance = int(requirement["ac"])
-            rejection = int(requirement["re"])
-            if not (sample_n >= 1 and 0 <= acceptance < rejection <= sample_n):
-                raise ValueError(
-                    f"Piano {criticality} non valido: deve rispettare "
-                    "n ≥ 1 e 0 ≤ Ac < Re ≤ n."
-                )
-            return sample_n, acceptance, rejection
-
-        critical_values = values("C")
-        important_values = values("I")
-        normal_values = values("N")
-        sample_counts = {
-            "C": critical_values[0],
-            "I": important_values[0],
-            "N": normal_values[0],
-        }
+        expected_samples = max(
+            sample_counts[control.get("criticality") or "N"] for control in controls
+        )
+        if (not isinstance(n_samples, int) or isinstance(n_samples, bool)
+                or n_samples != expected_samples):
+            raise ValueError(
+                "La quantità da controllare deve coincidere con il massimo n "
+                "delle criticità presenti nella revisione."
+            )
         expected_measurement_keys = {
             (control["id"], sample_num)
             for control in controls
@@ -764,8 +785,8 @@ def save_completed_inspection(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, 1, 0, ?)
         """, (
-            setup_id, setup_revision_id, lot_code.strip(), int(lot_quantity),
-            int(n_samples), *critical_values, *important_values, *normal_values,
+            setup_id, setup_revision_id, lot_code.strip(), lot_quantity,
+            n_samples, *sampling_values,
             sampling_profile, operator.strip(), operator_id, supplier.strip(),
             supplier_id, notes.strip(), now, now,
         ))
@@ -796,17 +817,13 @@ def save_completed_inspection(
                 if (type(value_num) not in (int, float)
                         or not math.isfinite(value_num) or value_bool is not None):
                     raise ValueError("La misura dimensionale deve essere un numero finito.")
-                pass_fail = (
-                    control["nominal"] - abs(control["tol_minus"])
-                    <= value_num <= control["nominal"] + abs(control["tol_plus"])
-                )
             elif control["control_type"] == "yesno":
                 if (type(value_bool) not in (bool, int)
                         or value_bool not in (0, 1) or value_num is not None):
                     raise ValueError("La misura Sì/No deve contenere una risposta booleana.")
-                pass_fail = bool(value_bool)
             else:
                 raise ValueError("Tipo di controllo non riconosciuto.")
+            pass_fail, _ = evaluate_control(control, value_num, value_bool)
             for field in ("pass_fail", "accepted_in_derogation"):
                 flag = measurement.get(field, False)
                 if type(flag) not in (bool, int) or flag not in (0, 1):

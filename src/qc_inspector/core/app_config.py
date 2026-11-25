@@ -5,11 +5,15 @@ Gestione configurazione applicativa condivisa.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
 import stat
+from io import BytesIO
 from typing import Dict
+
+from reportlab.lib.utils import ImageReader
 
 
 CONF_NAME = "qc_inspector.conf"
@@ -17,24 +21,45 @@ SYSTEM_CONFIG_DIR = "/etc/qc-inspector"
 SYSTEM_STATE_DIR = "/var/qc-inspector"
 SYSTEM_OPTIONS_NAME = "qc_inspector.options.conf"
 CONFIG_PATH_ENV = "QC_INSPECTOR_CONFIG"
-EDITABLE_OPTION_KEYS = {
-    "label_printer",
-    "labels_qta",
-    "label_enable",
+DEFAULT_REPORT_LOGO = "@default"
+APPLICATION_OPTION_KEYS = {
     "audio_enable",
     "audio_pass_file",
     "audio_fail_file",
-    "report_footer_text",
     "decimal_separator",
 }
+LEGACY_LABEL_OPTION_KEYS = {"label_printer", "labels_qta", "label_enable"}
+GENERAL_OPTION_KEYS = APPLICATION_OPTION_KEYS | LEGACY_LABEL_OPTION_KEYS
+LABEL_OPTION_KEYS = {
+    "label_printer", "labels_qta", "label_auto_print", "label_width_mm",
+    "label_height_mm", "label_template",
+}
+DEFAULT_LABEL_TEMPLATE = (
+    "# QC Inspector — {setup}\n"
+    "Lotto: {lotto}\nOperatore: {operatore}\nData: {data}\n"
+    "Campioni: {campioni}\nDescrizione: {descrizione}\n---\n**Esito: {esito}**"
+)
+LABEL_SIZE_RANGE = (10, 500)
+REPORT_APPEARANCE_KEYS = {"report_logo_file", "report_footer_text"}
+REPORT_OPTION_KEYS = REPORT_APPEARANCE_KEYS | {"report_dir", "report_auto_save"}
+BACKUP_OPTION_KEYS = {"backup_dir"}
+EDITABLE_OPTION_KEYS = GENERAL_OPTION_KEYS | REPORT_OPTION_KEYS | LABEL_OPTION_KEYS | BACKUP_OPTION_KEYS
 DEFAULT_CONFIG = {
     "label_printer": "Zebra-ZPL",
     "labels_qta": "2",
     "label_enable": "YES",
+    "label_auto_print": "NO",
+    "label_width_mm": "105",
+    "label_height_mm": "60",
+    "label_template": json.dumps(DEFAULT_LABEL_TEMPLATE, ensure_ascii=False),
     "audio_enable": "YES",
     "audio_pass_file": "",
     "audio_fail_file": "",
+    "report_logo_file": DEFAULT_REPORT_LOGO,
     "report_footer_text": "",
+    "report_dir": "",
+    "backup_dir": "",
+    "report_auto_save": "NO",
     "db_path": "/var/qc-inspector/qc_database.sqlite",
     "pdf_dir": "/var/qc-inspector/pdf",
     "decimal_separator": ".",
@@ -75,7 +100,7 @@ def get_config_path() -> str:
 
 
 def get_options_path() -> str:
-    """File scrivibile delle opzioni; coincide col config fuori dal .deb."""
+    """Percorso delle opzioni scrivibili, separato per le installazioni di sistema."""
     if is_system_install() and not os.environ.get(CONFIG_PATH_ENV):
         return os.path.join(SYSTEM_STATE_DIR, SYSTEM_OPTIONS_NAME)
     return get_config_path()
@@ -131,7 +156,7 @@ def load_or_create_config() -> Dict[str, str]:
     cfg = dict(runtime_defaults)
     file_keys = set()
     _read_config_values(path, cfg, file_keys)
-    # backward compatibility
+    # Recupera il nome della stampante dai file di configurazione precedenti.
     if "printername" in file_keys and "label_printer" not in file_keys:
         cfg["label_printer"] = cfg["printername"]
     if split_system_config and os.path.exists(options_path):
@@ -144,7 +169,14 @@ def load_or_create_config() -> Dict[str, str]:
     if split_system_config:
         return cfg
 
-    missing = [key for key in runtime_defaults if key not in file_keys]
+    # Le nuove preferenze usano i valori predefiniti fino al primo salvataggio.
+    optional_keys = (LABEL_OPTION_KEYS - LEGACY_LABEL_OPTION_KEYS) | BACKUP_OPTION_KEYS | {
+        "report_logo_file", "report_dir", "report_auto_save",
+    }
+    missing = [
+        key for key in runtime_defaults
+        if key not in file_keys and key not in optional_keys
+    ]
     if missing:
         needs_newline = False
         if os.path.getsize(path) > 0:
@@ -166,30 +198,101 @@ def _resolve_config_path(value: str) -> str:
     return os.path.join(os.path.dirname(get_config_path()), value)
 
 
+def get_report_dir(cfg: Dict[str, str]) -> str:
+    value = cfg.get("report_dir", "").strip()
+    return _resolve_config_path(os.path.expanduser(value)) if value else ""
+
+
+def is_report_auto_save_enabled(cfg: Dict[str, str]) -> bool:
+    return cfg.get("report_auto_save", "NO").strip().upper() == "YES"
+
+
+def load_report_logo(value: str) -> BytesIO:
+    if value == DEFAULT_REPORT_LOGO:
+        asset_root = getattr(sys, "_MEIPASS", get_app_root())
+        path = os.path.join(asset_root, "assets", "icons", "report-logo.png")
+    else:
+        path = _resolve_config_path(os.path.expanduser(value))
+    try:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(path)
+        with open(path, "rb") as source:
+            image = BytesIO(source.read())
+        ImageReader(image).getRGBData()
+        image.seek(0)
+        return image
+    except Exception as exc:
+        raise ValueError(f"Impossibile leggere l'immagine del logo: {path}") from exc
+
+
+def get_label_layout(cfg: Dict[str, str]) -> tuple[float, float, str]:
+    dimensions = []
+    for key in ("label_width_mm", "label_height_mm"):
+        value = float(cfg.get(key, DEFAULT_CONFIG[key]))
+        if not LABEL_SIZE_RANGE[0] <= value <= LABEL_SIZE_RANGE[1]:
+            raise ValueError("Le dimensioni devono essere comprese tra 10 e 500 mm.")
+        dimensions.append(value)
+    template = json.loads(cfg.get("label_template", DEFAULT_CONFIG["label_template"]))
+    if not isinstance(template, str) or not template.strip():
+        raise ValueError("Inserisci il contenuto dell’etichetta.")
+    return dimensions[0], dimensions[1], template
+
+
 def save_options(options: Dict[str, str]) -> None:
     """Salva le preferenze preservando commenti, percorsi e chiavi aggiuntive."""
-    if set(options) != EDITABLE_OPTION_KEYS:
+    keys = set(options)
+    if keys not in (
+        GENERAL_OPTION_KEYS,
+        GENERAL_OPTION_KEYS | {"report_footer_text"},
+        APPLICATION_OPTION_KEYS,
+        LABEL_OPTION_KEYS,
+        GENERAL_OPTION_KEYS | REPORT_OPTION_KEYS,
+        EDITABLE_OPTION_KEYS,
+        EDITABLE_OPTION_KEYS - BACKUP_OPTION_KEYS,
+        BACKUP_OPTION_KEYS,
+        REPORT_OPTION_KEYS,
+        REPORT_APPEARANCE_KEYS,
+    ):
         raise ValueError("Opzioni di configurazione non valide.")
     values = {key: str(value).strip() for key, value in options.items()}
     if any("\n" in value or "\r" in value for value in values.values()):
         raise ValueError("Le opzioni non possono contenere ritorni a capo.")
-    if not values["label_printer"]:
-        raise ValueError("Indica il nome della stampante.")
-    if not 1 <= int(values["labels_qta"]) <= 999:
-        raise ValueError("Il numero di copie deve essere compreso tra 1 e 999.")
-    if values["label_enable"] not in {"YES", "NO"}:
-        raise ValueError("Abilitazione stampa non valida.")
-    if values["audio_enable"] not in {"YES", "NO"}:
-        raise ValueError("Abilitazione audio non valida.")
-    if values["decimal_separator"] not in {".", ","}:
-        raise ValueError("Separatore decimale non valido.")
-    for key in ("audio_pass_file", "audio_fail_file"):
-        if values[key]:
-            audio_path = _resolve_config_path(values[key])
-            if not os.path.isfile(audio_path):
-                raise ValueError(f"File audio non valido: {audio_path}")
-            with open(audio_path, "rb"):
-                pass
+    if "label_printer" in keys:
+        if not values["label_printer"] and values.get("label_auto_print") != "NO":
+            raise ValueError("Indica il nome della stampante.")
+        if not 1 <= int(values["labels_qta"]) <= 999:
+            raise ValueError("Il numero di copie deve essere compreso tra 1 e 999.")
+        if values.get("label_enable", "NO") not in {"YES", "NO"}:
+            raise ValueError("Abilitazione stampa non valida.")
+    if LABEL_OPTION_KEYS <= keys:
+        if values["label_auto_print"] not in {"YES", "NO"}:
+            raise ValueError("Abilitazione della stampa automatica non valida.")
+        get_label_layout(values)
+    if APPLICATION_OPTION_KEYS <= keys:
+        if values["audio_enable"] not in {"YES", "NO"}:
+            raise ValueError("Abilitazione audio non valida.")
+        if values["decimal_separator"] not in {".", ","}:
+            raise ValueError("Separatore decimale non valido.")
+        for key in ("audio_pass_file", "audio_fail_file"):
+            if values[key]:
+                audio_path = _resolve_config_path(values[key])
+                if not os.path.isfile(audio_path):
+                    raise ValueError(f"File audio non valido: {audio_path}")
+                with open(audio_path, "rb"):
+                    pass
+    if values.get("report_logo_file"):
+        load_report_logo(values["report_logo_file"])
+    if "report_auto_save" in values:
+        if values["report_auto_save"] not in {"YES", "NO"}:
+            raise ValueError("Salvataggio automatico dei report non valido.")
+        report_dir = get_report_dir(values)
+        auto_save = is_report_auto_save_enabled(values)
+        if auto_save and not report_dir:
+            raise ValueError("Scegli una cartella per il salvataggio automatico dei report.")
+        if report_dir and not os.path.isdir(report_dir):
+            raise ValueError(f"Cartella report non disponibile: {report_dir}")
+        if auto_save and not os.access(report_dir, os.W_OK | os.X_OK):
+            raise ValueError(f"Cartella report non scrivibile: {report_dir}")
     path = get_options_path()
     if os.path.lexists(path):
         metadata = os.lstat(path)

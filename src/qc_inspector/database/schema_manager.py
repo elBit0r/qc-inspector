@@ -25,7 +25,7 @@ from ..core.sampling_plans import (
 )
 
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 LEGACY_PRODUCTION_COLUMNS = {
     "setups": {
@@ -107,6 +107,12 @@ V3_COLUMNS = {
 V4_COLUMNS = {
     **V3_COLUMNS,
     "setups": V3_COLUMNS["setups"] | {"is_obsolete"},
+}
+
+V5_COLUMNS = {
+    **V4_COLUMNS,
+    "controls": V4_COLUMNS["controls"] | {"boolean_labels"},
+    "revision_controls": V4_COLUMNS["revision_controls"] | {"boolean_labels"},
 }
 
 SCHEMA_V1_STATEMENTS = (
@@ -336,7 +342,7 @@ def initialize_database(
                 f"fino alla versione {CURRENT_SCHEMA_VERSION}."
             )
         if version == CURRENT_SCHEMA_VERSION:
-            _validate_v4(conn)
+            _validate_revision_schema(conn, 5, V5_COLUMNS)
             return version
 
         tables = _user_tables(conn)
@@ -354,6 +360,8 @@ def initialize_database(
             pass
         elif version == 3 and _matches_columns(conn, V3_COLUMNS):
             pass
+        elif version == 4:
+            _validate_revision_schema(conn, 4, V4_COLUMNS)
         else:
             raise DatabaseSchemaError(
                 "Database senza versione con schema non riconosciuto. "
@@ -371,6 +379,10 @@ def initialize_database(
             if create_backup and not database_was_empty:
                 _backup_database(conn, path, "v3-v4")
             _migrate_v3_to_v4(conn)
+        if int(conn.execute("PRAGMA user_version").fetchone()[0]) == 4:
+            if create_backup and not database_was_empty:
+                _backup_database(conn, path, "v4-v5")
+            _migrate_v4_to_v5(conn)
         return CURRENT_SCHEMA_VERSION
     finally:
         conn.close()
@@ -1080,19 +1092,34 @@ def _migrate_v3_to_v4(conn: sqlite3.Connection):
             "DEFAULT 0 CHECK(is_obsolete IN (0, 1))"
         )
         conn.execute("PRAGMA user_version = 4")
-        _validate_v4(conn)
+        _validate_revision_schema(conn, 4, V4_COLUMNS)
 
 
-def _validate_v4(conn: sqlite3.Connection):
+def _migrate_v4_to_v5(conn: sqlite3.Connection):
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("PRAGMA user_version").fetchone()[0] == 4:
+            for table in ("controls", "revision_controls"):
+                conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN boolean_labels TEXT "
+                    "NOT NULL DEFAULT 'yes_no' "
+                    "CHECK(boolean_labels IN ('yes_no', 'pass_fail', 'ok_ko'))"
+                )
+            conn.execute("PRAGMA user_version = 5")
+        _validate_revision_schema(conn, 5, V5_COLUMNS)
+
+
+def _validate_revision_schema(conn: sqlite3.Connection, expected_version: int,
+                              expected_columns: dict):
     version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-    if version != CURRENT_SCHEMA_VERSION:
+    if version != expected_version:
         raise DatabaseSchemaError(
             f"Versione schema non valida: {version}, attesa "
-            f"{CURRENT_SCHEMA_VERSION}."
+            f"{expected_version}."
         )
-    if not _matches_columns(conn, V4_COLUMNS):
+    if not _matches_columns(conn, expected_columns):
         raise DatabaseSchemaError(
-            "Il database dichiara la versione 4 ma lo schema non coincide."
+            f"Il database dichiara la versione {version} ma lo schema non coincide."
         )
     if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
         raise DatabaseSchemaError("Controllo integrità SQLite fallito.")
@@ -1116,7 +1143,7 @@ def _validate_v4(conn: sqlite3.Connection):
     }
     if not required_objects.issubset(actual_objects):
         raise DatabaseSchemaError(
-            "Indici o trigger obbligatori dello schema versione 4 mancanti."
+            f"Indici o trigger obbligatori dello schema versione {version} mancanti."
         )
     invalid_lots = int(conn.execute(
         "SELECT COUNT(*) FROM lots "
@@ -1124,7 +1151,7 @@ def _validate_v4(conn: sqlite3.Connection):
     ).fetchone()[0])
     if invalid_lots:
         raise DatabaseSchemaError(
-            "Lo schema versione 4 contiene lotti aperti, annullati o senza "
+            f"Lo schema versione {version} contiene lotti aperti, annullati o senza "
             "revisione del setup."
         )
     _validate_v2_rules_and_plans(conn)

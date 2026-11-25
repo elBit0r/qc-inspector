@@ -1,5 +1,25 @@
 # Backup e ripristino
 
+## Dall'applicazione
+
+In **Configurazione → Backup**, scegli la cartella di destinazione con
+**Sfoglia…** e premi **Esegui backup**. L'archivio ZIP contiene una copia
+del database SQLite, i PDF nella cartella dei disegni, eventuali PDF esterni
+referenziati dai setup o dalle revisioni e un file `backup.json` con data,
+ora e numero di setup.
+
+Con **Ripristina backup…** puoi importare i dati nello stato corrente o
+ripristinare tutto. Se un setup ha lo stesso nome di uno esistente,
+**Sostituisci** rimpiazza il setup locale e il suo storico con quelli
+dell'archivio. **Rinomina** importa il setup con un nuovo nome e conserva
+entrambi. Il ripristino completo sostituisce i dati locali dopo aver salvato
+una copia di sicurezza nella cartella di destinazione.
+
+La procedura manuale qui sotto copre anche i file di configurazione e può
+essere usata per salvare eventuali cartelle esterne di report esportati.
+
+## Procedura manuale
+
 Il backup deve comprendere **insieme database, intera directory PDF e
 configurazione**. Un backup del solo database non conserva i disegni.
 
@@ -13,7 +33,7 @@ configurazione**. Un backup del solo database non conserva i disegni.
    il backup con accesso limitato, perché contiene dati operativi.
 4. Verificare periodicamente il ripristino su una copia isolata.
 
-Per il `.deb` i percorsi predefiniti sono `/var/qc-inspector` (dati e opzioni)
+Per i pacchetti `.deb` e `.rpm` i percorsi predefiniti sono `/var/qc-inspector` (dati e opzioni)
 e `/etc/qc-inspector/qc_inspector.conf` (configurazione amministrativa).
 Nel portable salvare anche `qc_inspector.conf` accanto all'eseguibile.
 Con installazione Python usare i percorsi XDG o quelli impostati nel config.
