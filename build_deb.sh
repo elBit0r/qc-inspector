@@ -94,7 +94,7 @@ Section: utils
 Priority: optional
 Architecture: $ARCH
 Maintainer: QC Inspector Team
-Depends: libc6 (>= $GLIBC_MIN), libstdc++6, cups-client, xdg-utils, libegl1, libgl1, libdrm2, libxcb1, libxcb-cursor0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good
+Depends: libc6 (>= $GLIBC_MIN), libstdc++6, cups-client, xdg-utils, libegl1, libgl1, libdrm2, libxcomposite1, libxcb1, libxcb-cursor0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libxcb-xkb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libasound2t64, libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good
 Description: QC Inspector desktop application
  PyQt-based tool for setup programming and dimensional inspection.
 EOF
